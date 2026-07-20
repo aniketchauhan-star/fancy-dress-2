@@ -122,6 +122,9 @@ function makeMedia(page) {
     media.addEventListener("ended", function () {
       if (!opened || !ready || lbdFullscreen || flipped >= totalPages - 1) return;
       if (!leaves[flipped] || !leaves[flipped].contains(media)) return;   // only the current page
+      // PAGE-FLIP TUTORIAL: 5s after THIS page's video finishes, start the hand /
+      // ghost-flip nudge (see scheduleHintAfterVideo in the PAGE-TURN HINT section).
+      if (typeof scheduleHintAfterVideo === "function") scheduleHintAfterVideo();
       if (!armBlink || !cornerNext) return;      // already blinked for this visit
       armBlink = false;                          // one blink per page arrival
       cornerNext.classList.remove("blink1");
@@ -1049,9 +1052,10 @@ function soundOn() {
    PAGE-TURN HINT  —  guidance for readers who don't know how to turn the page.
    When idle, two cues fire together: a hand taps the forward arrow AND the page
    itself does a "ghost" half-flip (lifts toward the next page, then falls back).
-   Timing: PAGE 1 after 5s, every later page after 10s of no interaction; repeats
-   while idle and is cancelled by any tap / key / flip. Never on the last page or
-   while the LBD game is open.
+   Timing: the tutorial appears 5s AFTER the page's video finishes playing; it then
+   repeats every 9s while idle and is cancelled by any tap / key / flip. On pages
+   with no video it falls back to an idle delay. Never on the last page or while the
+   LBD game is open.
    ========================================================================== */
 // The nudge is a HAND on the RIGHT side of the book. Drop your 3D-hand art at
 // assets/hand-nudge.png and it's used automatically; until it exists, an emoji
@@ -1072,8 +1076,11 @@ flipHint.addEventListener("error", function () {
 }, { once: true });
 document.body.appendChild(flipHint);
 
-// Idle guidance timing: the FIRST nudge is after 5s on page 1, 10s on later pages;
-// then it plays ONCE, disappears, and comes back every 9s. Any interaction resets it.
+// Guidance timing: the tutorial's FIRST appearance is 5s after the page video
+// ENDS (AFTER_VIDEO_MS). It then plays ONCE, disappears, and comes back every 9s.
+// Any interaction resets it. idleDelay() is only the FALLBACK for pages with no
+// video (the hint can't wait on a video that never plays).
+const AFTER_VIDEO_MS = 5000;   // wait after the video finishes before the tutorial
 function idleDelay() { return flipped === 0 ? 5000 : 10000; }
 const NUDGE_SHOW_MS = 2000;    // how long one nudge stays on screen
 const NUDGE_GAP_MS  = 9000;    // gap after it disappears before it plays again
@@ -1083,8 +1090,13 @@ let peeking = false;
 let peekTimers = [];
 
 function canShowHint() {
-  return opened && ready && !animating && !lbdFullscreen &&
-         flipped < totalPages - 1 && flipped !== LBD_INDEX && !document.hidden;
+  if (!(opened && ready && !animating && !lbdFullscreen &&
+        flipped < totalPages - 1 && flipped !== LBD_INDEX && !document.hidden)) return false;
+  // Only guide AFTER the page's video finishes — never before it starts or while it
+  // is still playing (also stops the hint firing mid-replay). See scheduleHintAfterVideo.
+  const v = pageVideo();
+  if (v && !v.ended) return false;
+  return true;
 }
 function positionFlipHint() {
   if (!flipScaleEl) return;
@@ -1155,15 +1167,35 @@ function triggerHint() {
     idleHintTimer = setTimeout(triggerHint, NUDGE_GAP_MS);   // ...then again after 9s
   }, NUDGE_SHOW_MS);
 }
+// The <video> on the page we're currently reading (null on image / end pages).
+function pageVideo() {
+  const leaf = leaves[flipped];
+  return leaf ? leaf.querySelector("video.page-media") : null;
+}
+// Called from a page video's "ended" event: (re)start the 5s countdown to the
+// tutorial. Fires for replays too, so the hint always trails the video's end.
+function scheduleHintAfterVideo() {
+  hideFlipHint();
+  cancelPeek();
+  if (cornerNext) cornerNext.classList.remove("blink");
+  clearTimeout(idleHintTimer);
+  clearTimeout(nudgeHideTimer);
+  idleHintTimer = setTimeout(triggerHint, AFTER_VIDEO_MS);
+}
 function resetIdleHint() {
   hideFlipHint();
   cancelPeek();
   if (cornerNext) cornerNext.classList.remove("blink");
   clearTimeout(idleHintTimer);
   clearTimeout(nudgeHideTimer);
-  idleHintTimer = setTimeout(triggerHint, idleDelay());       // first show: 5s (pg1) / 10s (later)
+  const v = pageVideo();
+  // While this page's video is still playing, DON'T start a countdown — the tutorial
+  // is armed by the video's "ended" event (5s after it finishes). If the video has
+  // already finished, re-arm 5s from now. Pages with NO video fall back to idleDelay.
+  if (v && !v.ended) return;
+  idleHintTimer = setTimeout(triggerHint, v ? AFTER_VIDEO_MS : idleDelay());
 }
-// Any interaction cancels the nudge + restarts the idle countdown.
+// Any interaction cancels the nudge + restarts the countdown.
 ["pointerdown", "keydown", "wheel", "touchstart"].forEach(function (evt) {
   document.addEventListener(evt, resetIdleHint, { passive: true, capture: true });
 });
