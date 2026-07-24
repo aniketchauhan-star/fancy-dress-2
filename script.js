@@ -49,21 +49,29 @@ console.log("%c✅ [The Story Night] loaded — 3D flipbook · full-bleed pages 
    Add / remove / reorder pages freely — the flip engine and the "Page X / N"
    counter update automatically.
    ============================================================================ */
-// TWO-PAGE sample template (the game has been removed). Each video page has a
-// matching first-frame poster in assets/posters/ so the scene shows instantly.
-// Add / remove / reorder pages freely — the flip engine and the "Page X / N"
-// counter update automatically.
+// Nine video pages + the embedded Balancing Act game after page 7. Each video
+// page has a matching first-frame poster in assets/posters/ so the scene shows
+// instantly. Add / remove / reorder pages freely — the flip engine and the
+// "Page X / N" counter update automatically.
+// Videos are WebM (VP9 + Opus) — plays in Chrome/Edge/Firefox and Safari 14.1+
+// (VP9 support arrived in Safari 14.1 desktop / iOS 17.4 in-app). Converted from
+// the original H.264 MP4s at ~60% smaller with no visible quality loss.
 const pages = [
-  { type: "video", src: "assets/1.mp4" },   // 1 — opening video
-  { type: "video", src: "assets/2.mp4" },   // 2
-  { type: "video", src: "assets/3.mp4" },   // 3
-  { type: "video", src: "assets/4.mp4" },   // 4
-  { type: "video", src: "assets/5.mp4" },   // 5
-  { type: "video", src: "assets/6.mp4" },   // 6
-  { type: "video", src: "assets/7.mp4" },   // 7
-  { type: "video", src: "assets/8.mp4" },   // 8
-  { type: "video", src: "assets/9.mp4" },   // 9
-  { type: "end" },                          // 10 — THE END page (cream) + Replay
+  { type: "video", src: "assets/1.webm" },   // 1 — opening video
+  { type: "video", src: "assets/2.webm" },   // 2
+  { type: "video", src: "assets/3.webm" },   // 3
+  { type: "video", src: "assets/4.webm" },   // 4
+  { type: "video", src: "assets/5.webm" },   // 5
+  { type: "video", src: "assets/6.webm" },   // 6
+  { type: "video", src: "assets/7.webm" },   // 7
+  // 8 — the embedded Balancing Act game (lives in game/, shown via the overlay
+  // iframe; the leaf itself shows the game's intro artwork while the page turns).
+  { type: "lbd",
+    src: "game/index.html",
+    poster: "game/assets/img/Generated_Image_March_27__2026_-_1_07PM_1__2_.webp" },
+  { type: "video", src: "assets/8.webm" },   // 9
+  { type: "video", src: "assets/9.webm" },   // 10
+  { type: "end" },                           // 11 — THE END page (cream) + Replay
 ];
 
 /* ============================================================================
@@ -83,7 +91,7 @@ function makeMedia(page) {
     img.addEventListener("dragstart", function (e) { e.preventDefault(); });
     img.decoding = "async";
     img.src = page.poster || "";
-    img.alt = "Stairway Shuffle — tap Start to play";
+    img.alt = "Balancing Act — tap Let's Go to play";
     return img;
   }
   const media = page.type === "video"
@@ -104,7 +112,7 @@ function makeMedia(page) {
     // scene shows INSTANTLY and — because it equals where playback starts — there's no
     // jump when the video then plays. Posters are tiny (~40KB) and live in assets/posters/.
     media.setAttribute("poster",
-      page.src.replace(/^assets\//, "assets/posters/").replace(/\.mp4$/i, ".webp"));
+      page.src.replace(/^assets\//, "assets/posters/").replace(/\.webm$/i, ".webp"));
     // LAZY: do NOT eager-buffer. With 25 videos, preload="auto" made the browser
     // open + decode every clip on load (huge memory/CPU spike + open lag). We only
     // buffer the page you're on + the next one, on demand (see warmVideo()).
@@ -131,6 +139,23 @@ function makeMedia(page) {
       void cornerNext.offsetWidth;               // restart the animation cleanly
       cornerNext.classList.add("blink1");
       setTimeout(function () { cornerNext.classList.remove("blink1"); }, 2050);
+    });
+    // HARDENING — a media error must never strand a media-gated cue:
+    //  1) if the preloader's blob: URL fails, revert ONCE to the original file
+    //     URL (and file poster) and resume playback;
+    //  2) an unrecoverable error releases the "video ended" UI path (arrow
+    //     blink + tutorial) as if the clip had finished.
+    media.addEventListener("error", function () {
+      if (media.dataset.origSrc && /^blob:/.test(media.src || "")) {
+        const wasCurrent = leaves[flipped] && leaves[flipped].contains(media);
+        if (media.dataset.origPoster != null) media.setAttribute("poster", media.dataset.origPoster);
+        media.src = media.dataset.origSrc;
+        delete media.dataset.origSrc;
+        try { media.load(); } catch (_) {}
+        if (wasCurrent && opened && ready) playVideoNow(media);
+        return;
+      }
+      media.dispatchEvent(new Event("ended"));
     });
   } else {
     media.decoding = "async";
@@ -296,18 +321,36 @@ let lbdExiting    = false;   // guard so "complete" only advances once
 if (lbdFrame && LBD_INDEX >= 0 && pages[LBD_INDEX].poster) {
   lbdFrame.style.background = "#0a0f2d url('" + pages[LBD_INDEX].poster + "') center/cover no-repeat";
 }
-// Load the game into the iframe on demand (never on flipbook boot — it's heavy).
+// Load the game into the iframe. Safe to do while the overlay is hidden: the
+// Balancing Act build is SILENT until its "Let's Go" button is tapped (unlike
+// the old Stairway Shuffle, which autoplayed its title VO on load), so we warm
+// it in the background and landing on the game page is instant.
 function ensureLbdLoaded() {
   if (LBD_INDEX < 0 || !lbdFrame || lbdFrame.dataset.loaded) return;
   lbdFrame.src = pages[LBD_INDEX].src;
   lbdFrame.dataset.loaded = "1";
 }
-// Unload the game so the NEXT visit starts fresh at the pre-LBD home screen.
+// BACKGROUND WARM-UP — boot the iframe during browser idle time. Called by the
+// PRELOADER once it finishes (see the PRELOADER section): at that point every
+// game file is already in the HTTP cache, so this boot is instant, silent, and
+// never double-downloads. The game's own embed-bridge.js then primes its audio
+// elements from the same cache. requestIdleCallback where available, setTimeout
+// fallback for Safari.
+function warmLbdInBackground() {
+  if (LBD_INDEX < 0 || !lbdFrame || lbdFrame.dataset.loaded) return;
+  if ("requestIdleCallback" in window) requestIdleCallback(ensureLbdLoaded, { timeout: 6000 });
+  else setTimeout(ensureLbdLoaded, 2000);
+}
+// Reset the game so the NEXT visit starts fresh at the pre-LBD home screen.
+// Tearing down to about:blank stops all game audio INSTANTLY; re-pointing at the
+// game right after re-boots it silently in the background (from the browser's
+// cache — every asset was already fetched), so a revisit is instant too.
 function resetLbd() {
   if (!lbdFrame) return;
   lbdStarted = false;
   lbdFrame.src = "about:blank";
   lbdFrame.dataset.loaded = "";
+  setTimeout(ensureLbdLoaded, 60);
 }
 // Park the overlay exactly over the on-screen page rectangle (pre-LBD look).
 function positionLbdStage() {
@@ -330,15 +373,15 @@ function setLbdFullscreen(on) {
   clearTimeout(lbdAnimTimer);
   lbdAnimTimer = setTimeout(function () { lbdStage.classList.remove("lbd-anim"); }, 460);
 }
-// Show the overlay + LOAD the game ONLY once we've fully landed on the LBD page,
-// and UNLOAD it the moment we leave. The game is never loaded on approach: it
-// autoplays its title voice-over / background music as soon as it loads, so
-// loading it early would leak "Stairway Shuffle" audio onto the previous page.
+// Show the overlay once we've fully landed on the game page, and reset it the
+// moment we leave. The iframe was already warmed in the background (the game is
+// silent until "Let's Go" is tapped, so preloading can't leak audio) — landing
+// here just reveals the ready-to-play intro screen instantly.
 function updateLbdOverlay() {
   if (LBD_INDEX < 0 || !lbdStage) return;
   const onLbd = opened && ready && !animating && flipped === LBD_INDEX;
   if (onLbd) {
-    ensureLbdLoaded();                    // load only now → sound starts when you REACH the page
+    ensureLbdLoaded();                    // safety net — normally already warmed in the background
     if (!lbdFullscreen) positionLbdStage();
     lbdStage.classList.add("visible");
     lbdStage.setAttribute("aria-hidden", "false");
@@ -426,6 +469,7 @@ let mediaDelayTimer = null;   // pending "start this video after N ms" timer
 let mediaDelayIdx = -1;       // which page that pending timer belongs to
 let lastMediaIdx = -1;        // last page refreshMedia handled (to arm the blink once)
 let armBlink = false;         // allow the video-end arrow blink ONCE per page arrival
+let mediaWatchdog = null;     // per-page timer that releases video-gated cues if 'ended' never fires
 
 function playVideoNow(v) {
   try {
@@ -501,10 +545,18 @@ function refreshMedia() {
       playVideoNow(v);                          // no delay → instant
     }
   }
-  const bub = cur && cur.querySelector(".bubble");
-  if (bub && !bub.dataset.revealed) {           // reveal once — "for one time"
-    bub.dataset.revealed = "1";
-    bub.classList.add("revealed");
+  // WATCHDOG (hardening): the arrow blink + tutorial are gated on the video's
+  // 'ended' event. Three reveal paths now exist: the event itself, the media
+  // 'error' handler, and this timer — media duration + grace, re-armed on every
+  // page arrival — so a silently-stalled clip can never strand the cue.
+  clearTimeout(mediaWatchdog);
+  if (v && flipped < totalPages - 1) {
+    const durMs = (isFinite(v.duration) && v.duration > 0) ? v.duration * 1000 : 40000;
+    const startDelay = (pages[idx] && pages[idx].delay) ? pages[idx].delay : 0;
+    mediaWatchdog = setTimeout(function () {
+      if (flipped !== idx || !opened || !ready) return;   // left the page — stand down
+      if (!v.ended) v.dispatchEvent(new Event("ended"));  // release the gated cue
+    }, startDelay + durMs + 4000);
   }
   updateLbdOverlay();                           // show/hide the embedded LBD game
   // Right-side page stack shrinks toward the end: 3 sheets → … → 0 on the last page.
@@ -616,6 +668,7 @@ function runOpenSequence() {
 function openBook() {
   console.log("[The Story Night] openBook() called — opened was:", opened);
   if (opened) return;
+  if (!preloadDone) return;   // gate EVERY start path (tap, keyboard, programmatic) until 100% preloaded
   opened = true;
   enterFullscreen();          // Play tap is a user gesture → allowed to go fullscreen
   runOpenSequence();
@@ -633,6 +686,7 @@ function resetToStart() {
     if (vv) { try { vv.pause(); vv.currentTime = 0; } catch (_) {} }
   });
   lastMediaIdx = -1;
+  updateLbdOverlay();                          // safety: never leave the game overlay up on the cover
   document.body.classList.remove("is-open", "is-closing");
   book.classList.remove("open", "closing");
   coverScene.classList.remove("parked");
@@ -660,6 +714,7 @@ function closeBookToCover(afterReset) {
   if (cornerNext) cornerNext.classList.remove("blink", "blink1");
   if (homeBtn) homeBtn.classList.remove("show");
   var v = currentVideo(); if (v) { try { v.pause(); } catch (_) {} }
+  updateLbdOverlay();                          // Home tapped ON the game page → hide + reset the game overlay
   // pages back UNDER the cover, so the closing cover sweeps over them
   flipbookEl.style.zIndex = "";
   flipbookEl.style.pointerEvents = "none";
@@ -876,55 +931,18 @@ window.addEventListener("orientationchange", onViewportChange);
 })();
 
 /* ==========================================================================
-   SOUND  —  real audio files in sfx/: Page flip.mp3 (every page flip),
-   cover page flip.mp3 (the cover opening), and BG Music.mp3 (looping background
-   music at 40% volume). All muted until the book is opened (a user gesture).
+   SOUND  —  one-shot SFX in sfx/: Page flip.ogg (every page flip) and
+   cover page flip.ogg (the cover opening). Muted until the book is opened
+   (a user gesture).
+   (The old title voice-over "the story night.ogg" and looping "BG Music.mp3"
+   referenced files that were never shipped — every load fired two 404s and
+   played nothing. That dead code has been removed; playTitleVo/playBgMusic
+   remain as no-ops so existing call sites stay valid.)
    ========================================================================== */
 let muted = true;
-
-/* ---- Title voice-over: "The Story Night" ---------------------------------
-   Plays as soon as the flipbook loads. Browsers BLOCK audible autoplay before
-   any user interaction, so if the load-time attempt is refused we play it on the
-   very first user gesture (tap / key / touch) instead. Plays ONCE per load.
-   (.ogg plays in Chrome/Edge/Firefox; Safari would need an .mp3/.m4a version.) */
-const titleVo = new Audio("sfx/the%20story%20night.ogg");
-titleVo.preload = "auto";
-try { titleVo.load(); } catch (_) {}         // buffer it NOW so playback is instant (no start lag)
-const TITLE_VO_SKIP = 0;                      // seconds to skip if the CLIP has leading silence (bump to e.g. 0.4)
-let _titleVoPlayed = false;
-function _titleGesture() {
-  window.removeEventListener("pointerdown", _titleGesture, true);
-  window.removeEventListener("keydown",     _titleGesture, true);
-  window.removeEventListener("touchstart",  _titleGesture, true);
-  playTitleVo();
-}
-function playTitleVo() {
-  if (_titleVoPlayed) return;
-  try { titleVo.currentTime = TITLE_VO_SKIP; } catch (_) {}
-  const p = titleVo.play();
-  if (p && p.then) p.then(function () { _titleVoPlayed = true; }).catch(function () {});
-  else _titleVoPlayed = true;
-}
-// Arm the first-gesture fallback IMMEDIATELY (so the very first tap fires the VO
-// with ZERO delay) AND attempt autoplay right now — whichever the browser allows
-// first wins; the other is a no-op (guarded by _titleVoPlayed).
-window.addEventListener("pointerdown", _titleGesture, true);
-window.addEventListener("keydown",     _titleGesture, true);
-window.addEventListener("touchstart",  _titleGesture, true);
-playTitleVo();   // try to autoplay the moment the flipbook loads
-
-// Looping BACKGROUND MUSIC at 40% volume. Started on open (a user gesture) so
-// the browser allows it to play with sound.
-const bgMusic = new Audio("sfx/BG%20Music.mp3");
-bgMusic.loop = true;
-bgMusic.volume = 0.20;                      // 20% volume, per request
-bgMusic.preload = "auto";
-function playBgMusic() {
-  try {
-    const p = bgMusic.play();
-    if (p && p.catch) p.catch(function () {});   // ignore autoplay rejections
-  } catch (_) {}
-}
+let _titleVoPlayed = false;      // kept for the Replay flow's reset
+function playTitleVo() {}        // no-op: title VO asset was never shipped
+function playBgMusic() {}        // no-op: BG music asset was never shipped
 
 /* ---- Pause ALL audio when the tab / window goes to the background -----------
    Background music AND the current page's video (its voice-over) must stop the
@@ -937,7 +955,6 @@ function currentVideo() {
   return leaf ? leaf.querySelector("video.page-media") : null;
 }
 function pauseAllAudioFB() {
-  if (!bgMusic.paused) { _bgWasPlaying = true; try { bgMusic.pause(); } catch (_) {} }
   const v = currentVideo();
   if (v && !v.paused) { v.dataset.wasPlaying = "1"; try { v.pause(); } catch (_) {} }
   if (audioCtx && audioCtx.state === "running") { try { audioCtx.suspend(); } catch (_) {} }
@@ -946,7 +963,6 @@ function resumeAllAudioFB() {
   if (document.hidden || !document.hasFocus()) return;   // only when truly back in front
   if (!opened) return;                                   // nothing plays before the book opens
   if (audioCtx && audioCtx.state === "suspended") { try { audioCtx.resume(); } catch (_) {} }
-  if (_bgWasPlaying) { _bgWasPlaying = false; playBgMusic(); }
   const v = currentVideo();
   if (v && v.dataset.wasPlaying && !v.ended) { delete v.dataset.wasPlaying; const p = v.play(); if (p && p.catch) p.catch(function () {}); }
 }
@@ -970,10 +986,12 @@ let audioCtx = null;
 const sfxBuf = {};                          // name -> { buffer, offset (seconds) }
 
 // Fallback <audio> elements — used ONLY if Web Audio fails to init or decode.
-const flipSound = new Audio("sfx/Page%20flip.mp3");
-flipSound.preload = "auto";
-const coverFlipSound = new Audio("sfx/cover%20page%20flip.mp3");
-coverFlipSound.preload = "auto";
+// preload="none": these rarely-used fallbacks must not download on every visit;
+// the primary path decodes the inlined base64 (sfx-data.js) via Web Audio.
+const flipSound = new Audio("sfx/Page%20flip.ogg");
+flipSound.preload = "none";
+const coverFlipSound = new Audio("sfx/cover%20page%20flip.ogg");
+coverFlipSound.preload = "none";
 coverFlipSound.volume = 0.35;
 
 (function initSfx() {
@@ -1199,6 +1217,136 @@ function resetIdleHint() {
 ["pointerdown", "keydown", "wheel", "touchstart"].forEach(function (evt) {
   document.addEventListener(evt, resetIdleHint, { passive: true, capture: true });
 });
+
+/* ==========================================================================
+   PRELOADER — fetch 100% of the experience (book videos, posters, art, SFX and
+   the ENTIRE embedded game incl. its ?v= cache-busted files) behind a themed
+   loading bar shown in the Play button's spot. The Play button pops in only
+   when everything is local, so nothing ever buffers or lags mid-story.
+   • Streaming readers → byte-accurate progress, weighted by real on-disk sizes
+     (the manifest below is generated from the actual files) and refined with
+     Content-Length. The bar only ever moves forward (monotonic).
+   • Smallest-first queue (cover art + posters land in the first seconds),
+     concurrency-limited to 5 so nothing starves.
+   • FAILURE NEVER BLOCKS: a failed / stalled / aborted fetch (or file:// where
+     fetch is blocked) counts as done and the element keeps its original src.
+     Every transfer has an abort timeout.
+   • Book videos + posters are swapped to blob: URLs (truly local); game files
+     are fetched purely to warm the HTTP cache the iframe then boots from.
+   ========================================================================== */
+// [url, bytes, kind, pageNo] — generated from the deployed files' real sizes.
+const PRELOAD_MANIFEST = [["assets/1.webm",2752430,"video",1],["assets/2.webm",619472,"video",2],["assets/3.webm",867799,"video",3],["assets/4.webm",636904,"video",4],["assets/5.webm",1669145,"video",5],["assets/6.webm",1789349,"video",6],["assets/7.webm",1297683,"video",7],["assets/8.webm",1201982,"video",8],["assets/9.webm",2782216,"video",9],["assets/posters/1.webp",27766,"poster",1],["assets/posters/2.webp",47972,"poster",2],["assets/posters/3.webp",24240,"poster",3],["assets/posters/4.webp",34160,"poster",4],["assets/posters/5.webp",30960,"poster",5],["assets/posters/6.webp",31096,"poster",6],["assets/posters/7.webp",19670,"poster",7],["assets/posters/8.webp",37566,"poster",8],["assets/posters/9.webp",58374,"poster",9],["assets/cover%20page.webp",87926,"img",0],["assets/play%20button.webp",7092,"img",0],["sfx/Page%20flip.ogg",22494,"audio",0],["sfx/cover%20page%20flip.ogg",8734,"audio",0],["game/index.html",1024,"game",0],["game/css/style.css?v=2",4380,"game",0],["game/needle-fix.css?v=2",588,"game",0],["game/js/data.js",186748,"game",0],["game/js/engine.js?v=2",19557,"game",0],["game/js/vo-sync.js",13602,"game",0],["game/js/controllers.js",53881,"game",0],["game/js/main.js",795,"game",0],["game/needle-fix.js?v=2",3671,"game",0],["game/js/embed-bridge.js",6669,"game",0],["game/assets/audio/7_blocks_is_more_than_5_blocks.ogg",25965,"game",0],["game/assets/audio/8_blocks_is_more_than_6_blocks.ogg",23901,"game",0],["game/assets/audio/Add_blocks_to_balance_the_book.ogg",19250,"game",0],["game/assets/audio/Add_blocks_to_balance_the_bottle.ogg",23673,"game",0],["game/assets/audio/Add_blocks_to_balance_the_doll.ogg",20802,"game",0],["game/assets/audio/Add_blocks_to_balance_the_mug.ogg",19565,"game",0],["game/assets/audio/Add_blocks_to_balance_the_pencil_box.ogg",25692,"game",0],["game/assets/audio/Add_blocks_to_balance_the_pumpkin.ogg",21415,"game",0],["game/assets/audio/Add_blocks_to_balance_the_teddy_bear.ogg",23134,"game",0],["game/assets/audio/Add_blocks_to_balance_the_watermelon.ogg",22847,"game",0],["game/assets/audio/btn.ogg",2928,"game",0],["game/assets/audio/Five_blocks_is_more_than_three_blocks.ogg",21848,"game",0],["game/assets/audio/Four_blocks_is_more_than_two_blocks.ogg",21638,"game",0],["game/assets/audio/Look_at_the_balance_carefully.ogg",16937,"game",0],["game/assets/audio/Now_add_blocks_to_balance_the_book.ogg",25570,"game",0],["game/assets/audio/Now_add_blocks_to_balance_the_bottel.ogg",25919,"game",0],["game/assets/audio/Now_add_blocks_to_balance_the_doll.ogg",24211,"game",0],["game/assets/audio/Now_add_blocks_to_balance_the_mug.ogg",23036,"game",0],["game/assets/audio/Now_add_blocks_to_balance_the_pencil_box.ogg",23831,"game",0],["game/assets/audio/Now_add_blocks_to_balance_the_pumpkin.ogg",24613,"game",0],["game/assets/audio/Now_add_blocks_to_balance_the_teddy_bear.ogg",26456,"game",0],["game/assets/audio/Now_add_blocks_to_balance_the_watermelon.ogg",26422,"game",0],["game/assets/audio/Oops_that_is_not_correct.ogg",17242,"game",0],["game/assets/audio/Remove_blocks_to_balance_the_book.ogg",18341,"game",0],["game/assets/audio/Remove_blocks_to_balance_the_bottle.ogg",17725,"game",0],["game/assets/audio/Remove_blocks_to_balance_the_doll.ogg",18180,"game",0],["game/assets/audio/Remove_blocks_to_balance_the_mug.ogg",18330,"game",0],["game/assets/audio/Remove_blocks_to_balance_the_pencil_box.ogg",21475,"game",0],["game/assets/audio/Remove_blocks_to_balance_the_pump-kin.ogg",19783,"game",0],["game/assets/audio/Remove_blocks_to_balance_the_teddy_bear.ogg",20209,"game",0],["game/assets/audio/Remove_blocks_to_balance_the_watermelon.ogg",21220,"game",0],["game/assets/audio/Select_a_balance.ogg",13235,"game",0],["game/assets/audio/Select_the_other_balance.ogg",15432,"game",0],["game/assets/audio/So_the_book_is_heavier_than_the_box.ogg",21123,"game",0],["game/assets/audio/So_the_pumpkin_is_heavier_than_the_watermelon.ogg",25221,"game",0],["game/assets/audio/So_the_teddy_bear_is_heavier_than_the_doll.ogg",23828,"game",0],["game/assets/audio/So__the_bottle_is_heavier_than_the_mug.ogg",25954,"game",0],["game/assets/audio/Tap_on_the_heavier_item.ogg",15263,"game",0],["game/assets/audio/That_is_correct.ogg",15043,"game",0],["game/assets/audio/The_Balancing_game__1_.ogg",19502,"game",0],["game/assets/audio/Try_again.ogg",10422,"game",0],["game/assets/audio/Weight_of_book_is_equal_to_weight_of_5_blocks.ogg",28775,"game",0],["game/assets/audio/Weight_of_bottle_is_equal_to_weight_of_four_blocks.ogg",30135,"game",0],["game/assets/audio/Weight_of_box_is_equal_to_weight_of_3_blocks.ogg",27464,"game",0],["game/assets/audio/weight_of_doll_is_equal_to_weight_of_five_blocks.ogg",31947,"game",0],["game/assets/audio/Weight_of_mug_is_equal_to_weight_of_two_blocks.ogg",29957,"game",0],["game/assets/audio/Weight_of_Pumpkin_is_equal_to_weight_of_8_blocks.ogg",30204,"game",0],["game/assets/audio/Weight_of_teddy_bear_is_equal_to_weight_of_7_blocks.ogg",33294,"game",0],["game/assets/audio/Weight_of_watermelon_is_equal_to_weight_of_six_blocks.ogg",32091,"game",0],["game/assets/audio/well_done.ogg",16993,"game",0],["game/assets/fonts/LilitaOne-Regular.ttf",28092,"game",0],["game/assets/img/01.webp",29128,"game",0],["game/assets/img/02.webp",28534,"game",0],["game/assets/img/Aerrow_LetsGo.webp",131010,"game",0],["game/assets/img/Aru_and_pari__Balancing_Act_kjswkdgvj_1.webp",4018,"game",0],["game/assets/img/Aru_and_pari__Balancing_Act_kjswkdgvj_6.webp",2438,"game",0],["game/assets/img/block_small.webp",4836,"game",0],["game/assets/img/block_small_normal.webp",2402,"game",0],["game/assets/img/book_h9ighlight.webp",44838,"game",0],["game/assets/img/bottle_highlight.webp",40364,"game",0],["game/assets/img/box_highlight.webp",169598,"game",0],["game/assets/img/BTL_1.webp",15814,"game",0],["game/assets/img/Button_Blue__5_.webp",9678,"game",0],["game/assets/img/Button_Blue__6_.webp",29264,"game",0],["game/assets/img/Button_Blue__7_.webp",10626,"game",0],["game/assets/img/ChatGPT_Image_Apr_14__2026__03_04_17_PM__1_2.webp",11484,"game",0],["game/assets/img/ChatGPT_Image_Mar_12__2026__03_23_00_PM__1__1.webp",181552,"game",0],["game/assets/img/ChatGPT_Image_Mar_12__2026__03_23_00_PM__1__2.webp",59418,"game",0],["game/assets/img/ChatGPT_Image_Nov_21__2025__06_10_02_PM_2__1_.webp",10586,"game",0],["game/assets/img/doll_2_02.webp",221284,"game",0],["game/assets/img/doll_2_03.webp",221580,"game",0],["game/assets/img/doll_h.webp",24490,"game",0],["game/assets/img/doll_hn.webp",83378,"game",0],["game/assets/img/drag-hand.webp",5382,"game",0],["game/assets/img/Ellipse_43.webp",1074,"game",0],["game/assets/img/frame_00_delay-0.02s.webp",3816,"game",0],["game/assets/img/Generated_Image_March_24__2026_-_12_34PM_1.webp",28626,"game",0],["game/assets/img/Generated_Image_March_27__2026_-_1_07PM_1__2_.webp",108626,"game",0],["game/assets/img/green.webp",239408,"game",0],["game/assets/img/green_01.webp",248796,"game",0],["game/assets/img/green_02.webp",252718,"game",0],["game/assets/img/Group.webp",6838,"game",0],["game/assets/img/Group1.webp",460,"game",0],["game/assets/img/Group_-_Copy.webp",456,"game",0],["game/assets/img/Group_166.webp",9552,"game",0],["game/assets/img/Group_453.webp",4834,"game",0],["game/assets/img/Group_4712.webp",14840,"game",0],["game/assets/img/Group_471__1_.webp",3358,"game",0],["game/assets/img/Group_494.webp",95856,"game",0],["game/assets/img/Group_495.webp",10056,"game",0],["game/assets/img/Group_515_01.webp",228818,"game",0],["game/assets/img/Group_515__1_.webp",25470,"game",0],["game/assets/img/Group_516.webp",32456,"game",0],["game/assets/img/Group_517.webp",32794,"game",0],["game/assets/img/Group_518.webp",233728,"game",0],["game/assets/img/Group_519.webp",34782,"game",0],["game/assets/img/Group_541.webp",8754,"game",0],["game/assets/img/Group_543.webp",235284,"game",0],["game/assets/img/Group_544.webp",37530,"game",0],["game/assets/img/Group_545.webp",34454,"game",0],["game/assets/img/Group_546.webp",28542,"game",0],["game/assets/img/Group_547.webp",27300,"game",0],["game/assets/img/Group_548.webp",28532,"game",0],["game/assets/img/Group_549.webp",55318,"game",0],["game/assets/img/Heavier.webp",758,"game",0],["game/assets/img/IMG_5014_1.webp",18172,"game",0],["game/assets/img/IMG_5017.webp",189850,"game",0],["game/assets/img/Lighter.webp",666,"game",0],["game/assets/img/MG.webp",5896,"game",0],["game/assets/img/mug_highlight.webp",23946,"game",0],["game/assets/img/normal.webp",27128,"game",0],["game/assets/img/normal_02.webp",243640,"game",0],["game/assets/img/normal_03.webp",27998,"game",0],["game/assets/img/pumpkin_01.webp",34166,"game",0],["game/assets/img/pumpkin_01_1.webp",9322,"game",0],["game/assets/img/pumpkin_highlight.webp",13080,"game",0],["game/assets/img/Rectangle_90.webp",72786,"game",0],["game/assets/img/Rectangle_91.webp",6204,"game",0],["game/assets/img/Rectangle_91__1_.webp",214876,"game",0],["game/assets/img/Slide_16_9_-_625.webp",19278,"game",0],["game/assets/img/teddy.webp",38186,"game",0],["game/assets/img/teddy_1.webp",93110,"game",0],["game/assets/img/teddy_highlight.webp",92938,"game",0],["game/assets/img/The_Fancy_Dress_Competition_-_1__10__1__1_.webp",23862,"game",0],["game/assets/img/The_Fancy_Dress_Competition_-_1__3__2.webp",4922,"game",0],["game/assets/img/The_picnic_day__Aniket_Chauhan___18__2.webp",13778,"game",0],["game/assets/img/Vector_10.webp",2450,"game",0],["game/assets/img/watermelon_01.webp",28748,"game",0],["game/assets/img/water_melon_01.webp",5398,"game",0],["game/assets/img/water_melon_highlight.webp",10044,"game",0]];
+
+let preloadDone = false;
+const preloadBlobs = {};                 // url -> blob: URL (book media only)
+
+(function preloadAll() {
+  const fill = document.getElementById("loadBarFill");
+  const text = document.getElementById("loadBarText");
+  const barEl = document.getElementById("loadBar");
+  const entries = PRELOAD_MANIFEST.slice().sort(function (a, b) { return a[1] - b[1]; }); // smallest first
+  let totalBytes = entries.reduce(function (s, e) { return s + e[1]; }, 0);
+  let loadedBytes = 0;
+  let shownPct = 0;                       // monotonic display value
+  const CONCURRENCY = 5;
+  const TRANSFER_TIMEOUT_MS = 120000;     // per-file hard abort so a stall can't wedge the bar
+
+  function paint() {
+    const real = totalBytes ? (loadedBytes / totalBytes) * 100 : 100;
+    shownPct = Math.max(shownPct, Math.min(real, 100));
+    const p = Math.floor(shownPct);
+    if (fill) fill.style.width = shownPct.toFixed(1) + "%";
+    if (text) text.textContent = "Loading… " + p + "%";
+    if (barEl) barEl.setAttribute("aria-valuenow", String(p));
+  }
+
+  function fetchOne(entry) {
+    const url = entry[0], expected = entry[1], kind = entry[2];
+    let received = 0;
+    const ctrl = ("AbortController" in window) ? new AbortController() : null;
+    const killer = setTimeout(function () { if (ctrl) ctrl.abort(); }, TRANSFER_TIMEOUT_MS);
+    function settle() {                   // success OR failure: account ALL remaining bytes
+      clearTimeout(killer);
+      if (received < expected) { loadedBytes += (expected - received); paint(); }
+    }
+    return fetch(url, ctrl ? { signal: ctrl.signal } : {})
+      .then(function (res) {
+        if (!res.ok) throw new Error("http " + res.status);
+        // Refine this file's weight with the server's real Content-Length.
+        const cl = parseInt(res.headers.get("content-length") || "", 10);
+        if (cl && cl !== expected) { totalBytes += (cl - expected); entry[1] = cl; }
+        const want = entry[1];
+        if (!res.body || !res.body.getReader) {
+          return res.blob().then(function (b) { received = want; loadedBytes += want; paint(); return b; });
+        }
+        const reader = res.body.getReader();
+        const chunks = [];
+        function pump() {
+          return reader.read().then(function (r) {
+            if (r.done) return new Blob(chunks);
+            chunks.push(r.value);
+            received += r.value.length;
+            loadedBytes += r.value.length;
+            paint();
+            return pump();
+          });
+        }
+        return pump();
+      })
+      .then(function (blob) {
+        settle();
+        // Keep blob URLs only for the book's own media (videos + posters) — the
+        // game boots inside its iframe from the now-warm HTTP cache.
+        if (blob && (kind === "video" || kind === "poster")) {
+          try { preloadBlobs[url] = URL.createObjectURL(blob); } catch (_) {}
+        }
+      })
+      .catch(function () { settle(); });   // failed/aborted/file:// → counts as done, original src stays
+  }
+
+  function runQueue() {
+    let idx = 0;
+    function next() {
+      if (idx >= entries.length) return Promise.resolve();
+      const entry = entries[idx++];
+      return fetchOne(entry).then(next);
+    }
+    const lanes = [];
+    for (let i = 0; i < CONCURRENCY; i++) lanes.push(next());
+    return Promise.all(lanes);
+  }
+
+  function finish() {
+    if (preloadDone) return;
+    preloadDone = true;
+    shownPct = 100; loadedBytes = totalBytes; paint();
+    // Swap the book's videos + posters onto their blob: URLs — "loaded" now truly
+    // means local. Originals stay in dataset for the one-time error fallback.
+    leaves.forEach(function (leaf, i) {
+      const page = pages[i];
+      if (!page || page.type !== "video") return;
+      const v = leaf.querySelector("video.page-media");
+      if (!v) return;
+      const vb = preloadBlobs[page.src];
+      const posterUrl = page.src.replace(/^assets\//, "assets/posters/").replace(/\.webm$/i, ".webp");
+      const pb = preloadBlobs[posterUrl];
+      if (pb) { v.dataset.origPoster = v.getAttribute("poster") || ""; v.setAttribute("poster", pb); }
+      if (vb) { v.dataset.origSrc = page.src; v.src = vb; }
+    });
+    // Reveal Play (pop-in) — also unblocks openBook()'s own guard.
+    document.body.classList.remove("is-loading");
+    document.body.classList.add("is-ready");
+    // NOW boot the game iframe: every one of its files is already in the HTTP
+    // cache, so this is instant and never double-downloads.
+    warmLbdInBackground();
+  }
+
+  paint();
+  runQueue().then(finish).catch(finish);
+  // Belt-and-braces: if something pathological wedges the whole queue, open the
+  // gate anyway after 3 minutes — the book must never be unstartable.
+  setTimeout(finish, 180000);
+})();
 
 /* ---- Boot ---------------------------------------------------------------- */
 fitScale();                              // scale the fixed 1280x720 book to fit first

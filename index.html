@@ -32,7 +32,9 @@
 <link rel="stylesheet" href="styles.css" />
 </head>
 
-<body>
+<!-- is-loading from the FIRST paint: the Play button stays hidden behind the
+     loading bar until script.js has fetched 100% of the book + game assets. -->
+<body class="is-loading">
 <!-- Landscape lock: on phones/tablets (touch), the book shows only in landscape.
      In portrait the scene is hidden and this rotate prompt is shown instead. -->
 <div class="rotate-notice" id="rotateNotice">
@@ -90,6 +92,13 @@
                 <div class="back-fill"></div>
                 <div class="curl"></div>
                 <button class="play-btn" id="hint" type="button" aria-label="Play — open the book"></button>
+                <!-- Loading bar shown in the Play button's place until every asset
+                     (videos, posters, art, the whole embedded game) is fetched. -->
+                <div class="load-bar" id="loadBar" role="progressbar" aria-label="Loading the book"
+                     aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                  <div class="load-bar-track"><div class="load-bar-fill" id="loadBarFill"></div></div>
+                  <div class="load-bar-text" id="loadBarText">Loading… 0%</div>
+                </div>
               </div>
               <!-- BACK of the front cover: intentionally BLANK (plain dark board). -->
               <div class="face back"></div>
@@ -142,7 +151,16 @@
 <button class="arrow prev" id="prev" aria-label="Previous page">‹</button>
 <button class="arrow next" id="next" aria-label="Next page">›</button>
 
-<!-- (The embedded LBD game has been removed — this is a plain 2-page flipbook.) -->
+<!-- BALANCING ACT GAME OVERLAY — a body-level iframe (NOT inside the 3D book,
+     so it can expand to a true full-screen box). script.js parks it exactly over
+     the page rectangle when the reader lands on the game page, and expands it to
+     fullscreen when the game's "Let's Go" button is tapped. The iframe is warmed
+     in the BACKGROUND while the reader is still on the cover / early pages, so
+     landing on the game page shows it instantly — no loading wait. -->
+<div class="lbd-stage" id="lbdStage" aria-hidden="true">
+  <iframe id="lbdFrame" title="Balancing Act — weight balancing game"
+          allow="autoplay; fullscreen"></iframe>
+</div>
 
 <!-- Inlined one-shot SFX (base64) for glitch-free Web Audio playback on file:// -->
 <script src="sfx-data.js"></script>

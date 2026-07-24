@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<!-- Balancing Act — learner build embedded in the flipbook (god-mode dev suite
+     removed). embed-bridge.js talks to the parent flipbook via postMessage and
+     preloads all level art + voice-overs during idle time. -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Fancy Dress 2 — Balancing Act</title>
+  <link rel="stylesheet" href="css/style.css?v=2" />
+  <link rel="stylesheet" href="needle-fix.css?v=2" />
+</head>
+<body>
+  <div id="viewport">
+    <div id="stage"></div>
+  </div>
+  <script src="js/data.js"></script>
+  <script src="js/engine.js?v=2"></script>
+  <script src="js/vo-sync.js"></script>
+  <script src="js/controllers.js"></script>
+  <script src="js/main.js"></script>
+  <script src="needle-fix.js?v=2"></script>
+  <!-- Flipbook embed bridge: postMessage handshake + idle-time asset preloader -->
+  <script src="js/embed-bridge.js"></script>
+</body>
+</html>

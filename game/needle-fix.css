@@ -1,0 +1,19 @@
+#stage [data-name="needle"] {
+  position: absolute !important;
+
+  /* Automatically centers an 87px needle.
+     For a 251px parent, this becomes left: 82px. */
+  left: calc(50% - 43.5px) !important;
+  top: 100px !important;
+
+  width: 87px !important;
+  height: 97px !important;
+
+  /* Pivot on the bearing dot (~62% down) where the needle meets the fulcrum, so
+     the tip sweeps a wide, obvious arc like a real gauge — a centre pivot just
+     spins it in place and the tilt barely reads. */
+  transform-origin: 50% 62% !important;
+
+  will-change: transform;
+  pointer-events: none;
+}
