@@ -1,0 +1,3 @@
+# Deploy ignore — dev tooling only, never ship these
+.vscode/
+*.md

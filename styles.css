@@ -14,7 +14,6 @@
     --cover-edge: #380c03;   /* binding edge — near-black warm */
     --accent:     #2f9fd6;   /* blue accent (matches the cover's scale) */
     --accent-2:   #f8c21e;   /* cover-yellow (matches the bubble title) */
-    --tape:       rgba(255, 210, 90, 0.60);   /* warm gold washi-tape */
     --page-edge:  #f0e2c2;   /* page-stack fore-edge colour — warm cream */
     --page-back:   #ecdcb2;  /* BACK of a page + the right-side page stack (warm cream) */
     --page-back-2: #d3ba8c;  /* deeper cream for the stack edges / gradient shading */
@@ -22,7 +21,6 @@
     /* Fonts */
     --font-head: "Fredoka", system-ui, sans-serif;
     --font-hand: "Patrick Hand", "Comic Sans MS", cursive;
-    --font-note: "Caveat", cursive;
 
     /* The book's physical thickness (depth of the page block) */
     --thick: clamp(22px, 3.4vw, 48px);
@@ -199,7 +197,7 @@
      Guidance for HOW to turn the page: a 3D hand on the book's right edge does a
      right-to-left SWIPE, shown together with the "ghost" page-flip. JS positions
      it against the book's right side (see positionFlipHint) and toggles .show.
-     Drop your art at assets/hand-nudge.png; until then an emoji hand is used. */
+     Rendered as an emoji hand (no image asset needed). */
   .flip-hint {
     position: fixed; z-index: 720; pointer-events: none;
     width: clamp(56px, 7vw, 104px); height: auto;
@@ -208,7 +206,7 @@
     transition: opacity 320ms ease;
     will-change: transform;
   }
-  /* emoji fallback (when the PNG isn't present yet) */
+  /* emoji hand styling */
   .flip-hint--emoji {
     width: auto; font-size: clamp(46px, 6vw, 84px); line-height: 1;
     filter: drop-shadow(0 3px 6px rgba(0,0,0,0.55)) drop-shadow(0 0 10px rgba(214,150,255,0.6));
@@ -284,7 +282,6 @@
   .replay-btn svg { width: clamp(26px, 2.6vw, 34px); height: clamp(26px, 2.6vw, 34px); fill: #3a2408; }
 
   /* The old fixed side-arrows are replaced by the corner arrows above. */
-  .arrow { display: none !important; }
 
   /* Soft drop shadow on the "floor" beneath the book — grows as it opens */
   .floor-shadow {
@@ -394,33 +391,9 @@
 
   /* One paper page filling the whole book, behind the leaves (the surface the
      current single page rests on). Bound (square) on the left, rounded outside. */
-  .page-base {
-    position: absolute; inset: 1.4%;
-    background: var(--paper); opacity: 0;
-    transform: translateZ(-8px); border-radius: 2px 11px 11px 2px;
-    box-shadow: inset 12px 0 22px -18px rgba(0,0,0,0.12);
-    transition: opacity var(--cover-ms) ease;
-  }
-  .book.open .page-base { opacity: 1; transition: opacity 560ms ease 360ms; }
 
-  /* Inside-front-cover bookplate (the left page at the very start) */
-  .bookplate {
-    position: absolute; inset: 0; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 12%;
-  }
-  .bookplate .line { font-family: var(--font-note); font-size: clamp(18px, 2.8vw, 32px); color: var(--ink); }
-  .bookplate .name-line { border-bottom: 3px dotted var(--accent); min-width: 62%; margin-top: 4px; }
 
   /* "The End" note shown on the right base once every page is turned */
-  .end-note {
-    position: absolute; inset: 0; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 8px; text-align: center;
-    padding: 12%; opacity: 0; transition: opacity 400ms ease 200ms; pointer-events: none;
-  }
-  .book.at-end .end-note { opacity: 1; }
-  .end-note .big { font-family: var(--font-head); font-weight: 700;
-                   font-size: clamp(22px, 3.4vw, 46px); color: var(--cover-2); }
-  .end-note .small { font-family: var(--font-note); font-size: clamp(16px, 2.4vw, 26px); }
 
   /* ==========================================================================
      THE 3D PAGE BLOCK  —  a real cuboid giving the closed book its thickness.
@@ -603,7 +576,6 @@
      placeholder title / subtitle / taped photo — keep only the "tap to open" hint. */
   .cover .front .title,
   .cover .front .subtitle,
-  .cover .front .cover-photo { display: none; }
   /* Spine binding — a soft DARK crease near the left edge where the cover folds
      by the spine, sitting over the full-bleed artwork like the fold on a real
      picture-book cover. Dark-only groove (no light highlight — a bright edge here
@@ -634,30 +606,6 @@
   /* The cream page-stack fore-edge is hidden — on the dark night cover it read as a
      white line down the right edge. The book's thickness now comes only from the
      (darkened) page-block behind the cover. */
-  .cover .front .fore-edge { display: none; }
-  .cover .title {
-    font-family: var(--font-head); font-weight: 700; line-height: 1.02;
-    font-size: clamp(24px, 4.4vw, 58px);
-    text-shadow: 0 3px 0 rgba(0,0,0,0.14);
-  }
-  .cover .subtitle {
-    font-family: var(--font-note); font-size: clamp(17px, 2.8vw, 32px); opacity: 0.96;
-  }
-  /* A taped-on keepsake photo (a random kid avatar) — reinforces the scrapbook look */
-  .cover .cover-photo {
-    position: relative; background: #fff; padding: 7px 7px 12px;
-    border-radius: 4px; transform: rotate(-5deg);
-    box-shadow: 0 8px 18px rgba(0,0,0,0.28);
-  }
-  .cover .cover-photo img {
-    display: block; width: clamp(64px, 12vw, 128px); height: clamp(64px, 12vw, 128px);
-    object-fit: cover; border-radius: 3px; background: #eee;
-  }
-  .cover .cover-photo .tape {
-    position: absolute; top: -11px; left: 50%; width: 60px; height: 22px;
-    transform: translateX(-50%) rotate(-3deg);
-    background: var(--tape); box-shadow: 0 1px 3px rgba(0,0,0,0.14);
-  }
   /* Back of the cover (revealed on the left once the book is open) — SOLID blue,
      matching the cover theme. */
   .cover .back {
@@ -669,11 +617,9 @@
     box-shadow: inset 14px 0 26px -14px rgba(0,0,0,0.30),   /* spine-side shade */
                 inset 0 0 0 2px rgba(255,255,255,0.06);
   }
-  .cover .back .line { font-family: var(--font-note); font-size: clamp(18px, 2.8vw, 32px); color: rgba(255,255,255,0.92); }
-  .cover .back .name-line { border-bottom: 3px dotted rgba(255,255,255,0.7); min-width: 62%; margin-top: 4px; }
 
   /* PLAY button sitting on the cover — the supplied glossy YELLOW disc artwork
-     (assets/play button.png). Sits low-centre; tapping it opens the book. */
+     (assets/play button.webp). Sits low-centre; tapping it opens the book. */
   .play-btn {
     position: absolute; left: 50%; top: 63%; transform: translate(-50%, -50%);
     z-index: 2;                                 /* above the full-bleed artwork */
@@ -827,6 +773,25 @@
   /* The shading ramps up as the page lifts and peaks near edge-on, then eases
      off as it lies flat again — a gentle asymmetric curve for a paper feel. */
   .leaf.flipping .curl { animation: curlShade var(--flip-ms) var(--flip-ease); }
+
+  /* GPU GHOSTING FIX — children running a filter/animation on a 3D-rotated face
+     (like the curl's opacity animation) get their OWN compositing layers, which
+     can IGNORE the parent face's backface-visibility:hidden and ghost over other
+     pages. Two defences:
+       1) each such child carries its own backface-visibility:hidden;
+       2) once a leaf has fully TURNED AWAY (.flipped), its front-face children
+          are hard-hidden — delayed by the flip duration so the hide lands in
+          sync with the masking page-turn, never mid-animation. */
+  .leaf.flipped .face.front .curl {
+    visibility: hidden;
+    transition: visibility 0s linear var(--flip-ms);
+  }
+  /* Turning BACK by drag: JS adds .unflipping so the children are live again
+     the instant the sheet starts following the finger. */
+  .leaf.flipped.unflipping .face.front .curl {
+    visibility: visible;
+    transition: none;
+  }
   @keyframes curlShade {
     0%   { opacity: 0; }
     35%  { opacity: 0.9; }
@@ -855,7 +820,7 @@
   /* Content protection: the whole scene is non-selectable / non-saveable so the
      story art can't be copied via long-press, drag, or text selection. (Right-click
      "Save image / Copy" is blocked in script.js.) */
-  .scene, .book-stage, #flipbook, .cover, .cover-img, .bubble, .sbub {
+  .scene, .book-stage, #flipbook, .cover, .cover-img {
     -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none;
     -webkit-user-drag: none; user-drag: none;
     -webkit-touch-callout: none;
@@ -900,122 +865,11 @@
   }
   /* While the game is full screen, get the book chrome out of the way. */
   body.lbd-fullscreen .corner-arrow,
-  body.lbd-fullscreen .home-btn,
-  body.lbd-fullscreen .toolbar { display: none !important; }
-
-  /* ---- Speech bubble (SVG) --------------------------------------------------
-     A white comic bubble with a black outline + purple neon glow and a tail,
-     drawn as an inline SVG so position, size, angle and tail direction are fully
-     controllable per page (geometry set inline from the page's `bubble` config).
-     Sizes are in the book's 1280x720 space. Revealed once the page lands. */
-  .sbub {
-    position: absolute; z-index: 6; pointer-events: none;
-    width: var(--sbw, 220px); height: calc(var(--sbw, 220px) * 0.74);
-    transform: rotate(var(--sbrot, 0deg));
-    transform-origin: 50% 55%;
-    opacity: 0;                                   /* hidden until the page lands */
-  }
-  .sbub-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible;
-              filter: drop-shadow(0 0 6px rgba(178,84,255,0.95))
-                      drop-shadow(0 0 2px rgba(214,150,255,0.9)); }
-  .sbub-shape path, .sbub-shape ellipse {
-    fill: #fff; stroke: #141414; stroke-width: 2.2; stroke-linejoin: round;
-  }
-  .sbub-text {
-    position: absolute; left: 50%; top: 43%; transform: translate(-50%, -50%);
-    width: 76%; text-align: center;
-    font-family: var(--font-head); font-weight: 700; color: #141414;
-    line-height: 1.06; font-size: 34px; text-wrap: balance;
-  }
-  .sbub.revealed { animation: sbubPop 480ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
-  @keyframes sbubPop {
-    0%   { opacity: 0; transform: rotate(var(--sbrot,0deg)) scale(0.6); }
-    60%  { opacity: 1; transform: rotate(var(--sbrot,0deg)) scale(1.05); }
-    100% { opacity: 1; transform: rotate(var(--sbrot,0deg)) scale(1); }
-  }
-
-  /* ---- Speech bubble --------------------------------------------------------
-     The bubble artwork is a full-page (1920x1080) transparent PNG with the bubble
-     drawn in one region. We CROP to just that region (measured bounding box) via
-     a background-image, then place + size the crop FREELY per page by setting the
-     box position (top/left/right) and its width (--w, in book-space px). This lets
-     the same asset sit top-right on one page and centre-left on another.
-     Geometry (position, --w, text offsets, flip) is set inline from script.js.
-     ========================================================================== */
-  .bubble {
-    position: absolute; z-index: 6; pointer-events: none;
-    width: var(--w, 320px);
-    opacity: 0;                                   /* hidden until the page lands */
-    transform-origin: 50% 55%;                    /* pop from around the bubble body */
-  }
-  .bubble .bubble-bg {
-    position: absolute; inset: 0;
-    background-repeat: no-repeat;
-    filter: drop-shadow(0 6px 12px rgba(0,0,0,0.28));   /* lift the bubble off the art */
-  }
-  .bubble .bubble-bg.flip { transform: scaleX(-1); }    /* mirror → tail points the other way */
-  .bubble .bubble-text {
-    position: absolute; left: 50%; top: 42%;
-    transform: translate(-50%, -50%);
-    max-width: 68%; text-align: center;
-    font-family: var(--font-head); font-weight: 700;
-    color: #1b1533; line-height: 1.1;
-    font-size: 44px;                              /* fixed px in book space; tuned per page */
-    text-wrap: balance;
-  }
-
-  /* Crop maths per bubble (derived from the measured bounding boxes). Height is
-     locked to the bubble's aspect ratio; bg-size/position show only the bbox. */
-  .bubble.neel       { height: calc(var(--w) * 0.6972); }
-  .bubble.neel       .bubble-bg {
-    background-image: url("assets/neel dialogue box for one time..webp");
-    background-size: calc(var(--w) * 2.2272) auto;
-    background-position: calc(var(--w) * -0.7621) calc(var(--w) * -0.2645);
-  }
-  .bubble.everywhere { height: calc(var(--w) * 0.7067); }
-  .bubble.everywhere .bubble-bg {
-    background-image: url("assets/dialogue box for everywhere..webp");
-    background-size: calc(var(--w) * 2.1501) auto;
-    background-position: calc(var(--w) * -0.5756) calc(var(--w) * -0.2385);
-  }
-
-  /* Pop-in reveal: the bubble scales up from small with a springy overshoot and
-     fades in — played once the page has fully settled ("for one time"). */
-  .bubble.revealed { animation: bubblePop 620ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
-  @keyframes bubblePop {
-    0%   { opacity: 0; transform: scale(0.5)  translateY(12px); }
-    60%  { opacity: 1; transform: scale(1.04) translateY(0);    }
-    100% { opacity: 1; transform: scale(1)    translateY(0);    }
-  }
+  body.lbd-fullscreen .home-btn { display: none !important; }
 
   /* ==========================================================================
      CONTROLS  —  arrows, progress read-out, mute toggle
      ========================================================================== */
-  .arrow {
-    position: fixed; top: 50%; transform: translateY(-50%);
-    width: clamp(42px, 6vw, 60px); height: clamp(42px, 6vw, 60px);
-    border: none; border-radius: 50%; background: rgba(255,255,255,0.85);
-    box-shadow: 0 6px 16px rgba(0,0,0,0.18);
-    font-size: clamp(20px, 3vw, 30px); color: var(--cover-2);
-    cursor: pointer; z-index: 700; display: none;
-    align-items: center; justify-content: center;
-    transition: transform 140ms ease, background 140ms ease, opacity 200ms ease;
-  }
-  .arrow:hover  { background: #fff; transform: translateY(-50%) scale(1.08); }
-  .arrow:active { transform: translateY(-50%) scale(0.94); }
-  .arrow:disabled { opacity: 0.3; cursor: default; }
-  .arrow.prev { left: clamp(6px, 3vw, 34px); } .arrow.next { right: clamp(6px, 3vw, 34px); }
-  body.is-open .arrow { display: flex; }
-
-  /* Fixed at the bottom-centre (out of the column flow) so the book can sit dead-
-     centre in the viewport instead of being pushed up by this row. */
-  .toolbar { position: fixed; left: 50%; bottom: clamp(2px, 0.6vh, 8px);
-             transform: translateX(-50%); z-index: 650; margin: 0;
-             display: flex; align-items: center; gap: 14px;
-             font-family: var(--font-head); font-weight: 500; }
-  .progress { background: rgba(255,255,255,0.82); padding: 6px 16px; border-radius: 999px;
-              box-shadow: 0 4px 12px rgba(0,0,0,0.1); color: var(--ink); cursor: default;
-              font-size: clamp(14px, 2vw, 18px); min-width: 108px; text-align: center; }
 
   /* Respect users who prefer less motion */
   @media (prefers-reduced-motion: reduce) {

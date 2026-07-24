@@ -28,28 +28,17 @@ console.log("%c✅ [The Story Night] loaded — 3D flipbook · full-bleed pages 
    ----------------------------------------------------------------------------
    Every entry below is ONE page of the book, shown in order after the cover.
 
-     • type   : "video"  → a full-page video (e.g. assets/1 page.mp4)
+     • type   : "video"  → a full-page video (e.g. assets/1.webm)
                 "image"  → a full-page picture (e.g. assets/3 page.webp)
      • src    : the media file for that page.
      • delay  : (video only, optional) milliseconds to wait after landing on the
                 page before the video starts (e.g. delay: 3000 → starts after 3s).
                 Omit / 0 → the video starts instantly.
-     • bubble : (optional) a speech bubble that POPS IN once the reader has
-                FULLY landed on the page. Set:
-                   kind     : "neel" (pink) or "everywhere" (glowing) — picks
-                              which bubble artwork + crop to use.
-                   text     : the words shown inside the bubble.
-                   box      : where + how big — { top/left/right/bottom, w }.
-                              positions are CSS lengths (e.g. "3%"); w is the
-                              bubble WIDTH in book-space px (book is 1280x720).
-                   flip     : true → mirror the bubble so its tail points the
-                              other way.
-                   textLeft / textTop / fontSize : fine-tune the words inside.
 
    Add / remove / reorder pages freely — the flip engine and the "Page X / N"
    counter update automatically.
    ============================================================================ */
-// Nine video pages + the embedded Balancing Act game after page 7. Each video
+// Nine video pages + the embedded Balancing Act game after page 6. Each video
 // page has a matching first-frame poster in assets/posters/ so the scene shows
 // instantly. Add / remove / reorder pages freely — the flip engine and the
 // "Page X / N" counter update automatically.
@@ -63,12 +52,12 @@ const pages = [
   { type: "video", src: "assets/4.webm" },   // 4
   { type: "video", src: "assets/5.webm" },   // 5
   { type: "video", src: "assets/6.webm" },   // 6
-  { type: "video", src: "assets/7.webm" },   // 7
-  // 8 — the embedded Balancing Act game (lives in game/, shown via the overlay
+  // 7 — the embedded Balancing Act game (lives in game/, shown via the overlay
   // iframe; the leaf itself shows the game's intro artwork while the page turns).
   { type: "lbd",
     src: "game/index.html",
     poster: "game/assets/img/Generated_Image_March_27__2026_-_1_07PM_1__2_.webp" },
+  { type: "video", src: "assets/7.webm" },   // 8
   { type: "video", src: "assets/8.webm" },   // 9
   { type: "video", src: "assets/9.webm" },   // 10
   { type: "end" },                           // 11 — THE END page (cream) + Replay
@@ -164,72 +153,9 @@ function makeMedia(page) {
   return media;
 }
 
-/* ---- Build one speech bubble (hidden until the page fully lands) ---------
-   The bubble artwork + crop live in styles.css (.bubble.neel / .bubble.everywhere).
-   Here we only apply the per-page geometry (position, width, flip) + the text. */
-function makeBubble(bubble) {
-  const wrap = document.createElement("div");
-  wrap.className = "bubble" + (bubble.kind ? " " + bubble.kind : "");
-
-  const box = bubble.box || {};
-  ["top", "left", "right", "bottom"].forEach(function (k) {
-    if (box[k] != null) wrap.style[k] = box[k];
-  });
-  if (box.w != null) wrap.style.setProperty("--w", box.w + "px");
-
-  const bg = document.createElement("div");
-  bg.className = "bubble-bg" + (bubble.flip ? " flip" : "");
-  wrap.appendChild(bg);
-
-  if (bubble.text) {
-    const t = document.createElement("div");
-    t.className = "bubble-text";
-    t.textContent = bubble.text;
-    if (bubble.textLeft) t.style.left = bubble.textLeft;
-    if (bubble.textTop)  t.style.top  = bubble.textTop;
-    if (bubble.fontSize) t.style.fontSize = bubble.fontSize;
-    wrap.appendChild(t);
-  }
-  return wrap;
-}
-
-/* ---- Build one SVG speech bubble (white + black outline + purple glow) -----
-   cfg = { text, box:{top,left,right,bottom,w}, tail, rot, fontSize }
-     box   : position of the bubble box + its WIDTH in book-space px
-     tail  : "down" | "down-left" | "down-right"  (which way the tail points)
-     rot   : tilt in degrees (optional)
-   Hidden until the page lands (revealed by refreshMedia). */
-const SBUB_TAILS = {
-  "down":       "M42 57 L58 57 L50 73 Z",
-  "down-left":  "M30 55 L47 59 L16 73 Z",
-  "down-right": "M53 59 L70 55 L84 73 Z"
-};
-function makeSpeechBubble(cfg) {
-  const wrap = document.createElement("div");
-  wrap.className = "sbub";
-  const box = cfg.box || {};
-  ["top", "left", "right", "bottom"].forEach(function (k) {
-    if (box[k] != null) wrap.style[k] = box[k];
-  });
-  if (box.w != null) wrap.style.setProperty("--sbw", box.w + "px");
-  if (cfg.rot)       wrap.style.setProperty("--sbrot", cfg.rot + "deg");
-
-  const tailPath = SBUB_TAILS[cfg.tail] || SBUB_TAILS.down;
-  wrap.innerHTML =
-    '<svg class="sbub-svg" viewBox="0 0 100 74" aria-hidden="true">' +
-      '<g class="sbub-shape">' +
-        '<path d="' + tailPath + '"/>' +
-        '<ellipse cx="50" cy="32" rx="47" ry="29"/>' +
-      '</g>' +
-    '</svg>';
-
-  const t = document.createElement("div");
-  t.className = "sbub-text";
-  t.textContent = cfg.text || "";
-  if (cfg.fontSize) t.style.fontSize = cfg.fontSize + "px";
-  wrap.appendChild(t);
-  return wrap;
-}
+/* (The two legacy speech-bubble builders — the cropped-PNG "bubble" and the SVG
+   "sbub" — were removed: no page config uses them, and the PNG variant's artwork
+   files were never shipped, so they could not render even if enabled.) */
 
 /* ---- Build the pages (one CSS 3D "leaf" per entry) ---------------------- */
 const flipbookEl  = document.getElementById("flipbook");
@@ -268,7 +194,6 @@ pages.forEach(function (page, i) {
       '</div>';
   } else {
     front.appendChild(makeMedia(page));                       // full-bleed image / video
-    if (page.bubble) front.appendChild(makeBubble(page.bubble));  // PNG speech bubble (revealed on land)
   }
   const curl = document.createElement("div");               // moving page-curl shading
   curl.className = "curl";
@@ -290,8 +215,6 @@ const bookPop    = document.getElementById("bookPop");
 const bookFloat  = document.getElementById("bookFloat");
 const cover      = document.getElementById("cover");
 const hint       = document.getElementById("hint");
-const prevBtn    = document.getElementById("prev");
-const nextBtn    = document.getElementById("next");
 const cornerPrev  = document.getElementById("cornerPrev");
 const cornerNext  = document.getElementById("cornerNext");
 const replayBtn   = document.getElementById("replayBtn");   // lives on the THE END page (built above)
@@ -459,6 +382,22 @@ function renderLeaves() {
     else             leaf.classList.remove("flipped");
   });
   updateZ();
+  windowLeaves();
+}
+/* GPU WINDOWING — every leaf is a composited 3D layer; with all 11 alive at
+   once the GPU texture budget can overflow and the browser EVICTS textures,
+   making pages paint blank intermittently on real machines. Only leaves near
+   the current spread stay rendered; everything guaranteed-occluded (deep in
+   the turned pile on the left or the un-turned stack on the right) releases
+   its layer via visibility:hidden + will-change:auto. ±2 keeps the previous
+   page, the current one, and the sheet a drag-curl can reveal all live.
+   Re-run on every navigation (renderLeaves is called on each turn/reset). */
+function windowLeaves() {
+  leaves.forEach(function (leaf, i) {
+    const near = Math.abs(i - flipped) <= 2;
+    leaf.style.visibility = near ? "" : "hidden";
+    leaf.style.willChange = near ? "" : "auto";
+  });
 }
 
 /* ---- Per-page media -----------------------------------------------------
@@ -602,8 +541,6 @@ function updateProgress() {
   // HOME button appears as soon as the cover OPENS (not after the open finishes) —
   // hidden on the cover and on the last page (THE END, which has its own Replay).
   if (homeBtn) homeBtn.classList.toggle("show", opened && flipped < totalPages - 1);
-  prevBtn.disabled = flipped <= 0;
-  nextBtn.disabled = flipped >= totalPages - 1;
   if (cornerPrev) cornerPrev.disabled = !ready || flipped <= 0;             // grey the back corner at page 1
   if (cornerNext) cornerNext.disabled = !ready || flipped >= totalPages - 1; // grey forward on THE END page
 }
@@ -774,8 +711,6 @@ if (tapCatcher) tapCatcher.addEventListener("mousemove", function (e) {
 // The play button itself (also covers keyboard: Enter/Space on the focused button).
 hint.addEventListener("click", function (e) { e.stopPropagation(); if (!opened) openBook(); });
 
-prevBtn.addEventListener("click", function (e) { e.stopPropagation(); goPrev(); });
-nextBtn.addEventListener("click", function (e) { e.stopPropagation(); goNext(); });
 
 // Bottom-corner flip arrows (outside the book): back = left, forward = right.
 cornerPrev.addEventListener("click", function (e) { e.stopPropagation(); goPrev(); this.blur(); });
@@ -827,6 +762,9 @@ if (homeBtn) homeBtn.addEventListener("click", function (e) { e.stopPropagation(
       decided = true;
       leaf.style.transition = "none";                     // follow the finger exactly
       leaf.style.zIndex = 300;
+      // Turning BACK a flipped leaf: its front-face children are hard-hidden
+      // (GPU ghosting fix) — .unflipping re-shows them for the live drag.
+      if (dir === -1) leaf.classList.add("unflipping");
       curlEl = leaf.querySelector(".curl");
       try { flipbookEl.setPointerCapture(e.pointerId); } catch (_) {}
     }
@@ -866,6 +804,7 @@ if (homeBtn) homeBtn.addEventListener("click", function (e) { e.stopPropagation(
 
     setTimeout(function () {
       L.classList.remove("flipping");
+      L.classList.remove("unflipping");   // back-drag finished — re-arm the ghosting guard
       // Drop the inline transform WITHOUT re-animating: the .flipped class already
       // holds the final angle, so disabling the transition for this swap prevents
       // the leaf from briefly swinging back (the "page reappears on the left" glitch).
@@ -1075,23 +1014,13 @@ function soundOn() {
    with no video it falls back to an idle delay. Never on the last page or while the
    LBD game is open.
    ========================================================================== */
-// The nudge is a HAND on the RIGHT side of the book. Drop your 3D-hand art at
-// assets/hand-nudge.png and it's used automatically; until it exists, an emoji
-// hand stands in (the <img> error handler swaps to it).
-let flipHint = document.createElement("img");
-flipHint.className = "flip-hint";
+// The nudge is a HAND on the RIGHT side of the book — the emoji hand, built
+// directly. (It used to try assets/hand-nudge.png first, but that art was never
+// shipped, so every load fired a guaranteed 404 before swapping to the emoji.)
+let flipHint = document.createElement("div");
+flipHint.className = "flip-hint flip-hint--emoji";
 flipHint.setAttribute("aria-hidden", "true");
-flipHint.alt = "";
-flipHint.decoding = "async";
-flipHint.src = "assets/hand-nudge.png";
-flipHint.addEventListener("error", function () {
-  const el = document.createElement("div");
-  el.className = "flip-hint flip-hint--emoji";
-  el.setAttribute("aria-hidden", "true");
-  el.textContent = "👆";
-  if (flipHint.parentNode) flipHint.parentNode.replaceChild(el, flipHint);
-  flipHint = el;                 // later show/position calls use the swapped-in element
-}, { once: true });
+flipHint.textContent = "👆";
 document.body.appendChild(flipHint);
 
 // Guidance timing: the tutorial's FIRST appearance is 5s after the page video
