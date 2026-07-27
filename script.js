@@ -293,6 +293,7 @@ function setLbdFullscreen(on) {
   void lbdStage.offsetWidth;                 // commit, so the class change below animates from here
   lbdStage.classList.toggle("fullscreen", on);   // expand to / shrink from full screen
   document.body.classList.toggle("lbd-fullscreen", on);
+  updateProgress();                              // the gate just changed → re-evaluate NEXT
   clearTimeout(lbdAnimTimer);
   lbdAnimTimer = setTimeout(function () { lbdStage.classList.remove("lbd-anim"); }, 460);
 }
@@ -356,9 +357,27 @@ let _homeTimer = null;   // pending "cover finished closing → back to the cove
    normal/large screens (there the 0.84 factor is the smaller of the two); it only
    shrinks the book a little on small screens so the arrows + progress stay visible.
    Only this CSS transform scale changes, so the paper curl is never distorted. */
+/* The nav buttons' live box + inset, MIRRORING the CSS clamps in the NAV CONTROL
+   SET block of styles.css:
+     box   = clamp(84px, 10vw, 124px)
+     inset = clamp(12px, 2.5vw, 34px)        ← the wider (arrow) inset of the two
+   ⚠ IF THE CSS CLAMPS CHANGE, CHANGE THESE IN THE SAME COMMIT. fitScale() uses
+     them to reserve the buttons' horizontal footprint so the artwork can never
+     end up sitting underneath a control. */
+function navMetrics() {
+  const vw = window.innerWidth;
+  return {
+    btnW: Math.min(124, Math.max(84, vw * 0.10)),    // clamp(84px, 10vw, 124px)
+    btnX: Math.min(34,  Math.max(12, vw * 0.025)),   // clamp(12px, 2.5vw, 34px)
+  };
+}
 function fitScale() {
   const CTRL = 64;                                   // min top/bottom room kept for the controls
-  const availW = window.innerWidth * 0.88;           // leave breathing space on the left + right
+  const nav = navMetrics();
+  // Narrower of: the old 88%-of-width breathing space, and the width left over
+  // once BOTH bottom-corner buttons (+6px of clearance) are reserved.
+  const availW = Math.min(window.innerWidth * 0.88,
+                          window.innerWidth - 2 * (nav.btnW + nav.btnX + 6));
   const availH = Math.min(window.innerHeight * 0.80, window.innerHeight - CTRL * 2);
   const s = Math.min(availW / 1280, availH / 720);
   flipScaleEl.style.setProperty("--book-scale", s.toFixed(4));
@@ -505,44 +524,108 @@ function refreshMedia() {
   if (typeof resetIdleHint === "function") resetIdleHint();
 }
 
-/* ---- Navigation (drives the CSS leaf flip) ------------------------------ */
-function turnLeaf(leaf) {                 // shared flip visuals + timing
+/* ==========================================================================
+   NAVIGATION  —  ONE pair of entry points, goPrev() / goNext().
+   The corner buttons, the keyboard, the swipe/drag and every programmatic call
+   (e.g. the game's auto-advance) all route through these, so they inherit the
+   SAME guards. Do not add a second flip path.
+   ========================================================================== */
+
+/* CONTENT GATE — a page may HOLD the reader until its content releases them.
+   Today the only gate is the embedded game while it owns the whole screen: the
+   game posts "lbd-complete", which shrinks the overlay and then auto-advances.
+   NEXT is both blocked AND hidden while this is true. */
+function nextLocked() {
+  return lbdFullscreen;
+}
+
+/* Is there anywhere to go in `dir` (1 = forward, -1 = back)? This is what the
+   BACK/NEXT buttons' VISIBILITY is derived from, so it deliberately ignores the
+   transient mid-flip lock — otherwise both buttons would blink out and back on
+   every page turn. */
+function navAvailable(dir) {
+  if (!opened || !ready) return false;                 // not open / cover still swinging
+  if (lbdFullscreen) return false;                     // a fullscreen overlay is up
+  if (dir === 1) {
+    if (nextLocked()) return false;                    // this page's gate is still locked
+    return flipped < totalPages - 1;                   // not already on THE END page
+  }
+  return flipped > 0;                                  // not already on the first page
+}
+
+/* The single guard set every turn must pass. */
+function canTurn(dir) {
+  if (animating) return false;                         // a page is already in flight
+  return navAvailable(dir);
+}
+
+/* Shared flip visuals + timing. `fromDrag` = the leaf is already sitting at the
+   dragged angle under an inline transform; we hand it back to the CSS transition
+   so it animates from THERE to its resting angle. */
+let _flipTimer = null;
+function turnLeaf(leaf, fromDrag) {
   leaf.style.zIndex = 300;               // lift the turning sheet above everything
   leaf.classList.add("flipping");        // enables the moving curl shading
+  if (fromDrag) {
+    leaf.style.transition = "";          // re-enable the flip transition...
+    void leaf.offsetWidth;               // ...and commit the dragged angle as its start
+  }
   renderLeaves();
+  if (fromDrag) leaf.style.transform = "";   // → animates dragged angle → resting angle
   refreshMedia();                        // START now → the target video plays INSTANTLY
                                           // (as the page is revealed, not after the flip)
   playFlip();
   updateProgress();
-  setTimeout(function () {
+  clearTimeout(_flipTimer);
+  _flipTimer = setTimeout(function () {
     leaf.classList.remove("flipping");
+    leaf.classList.remove("unflipping");   // back-drag finished — re-arm the ghosting guard
+    // Drop any inline transform WITHOUT re-animating: the .flipped class already
+    // holds the final angle, so killing the transition for this swap stops the
+    // leaf briefly swinging back (the "page reappears on the left" glitch).
+    leaf.style.transition = "none";
+    leaf.style.transform = "";
+    void leaf.offsetWidth;                 // commit with no transition
+    leaf.style.transition = "";            // restore for the next turn
     animating = false; updateZ(); updateProgress();
     refreshMedia();                      // re-assert once settled (idempotent safety net)
   }, FLIP_MS + 40);
 }
-function goNext() {
-  if (!opened || !ready || animating) return;   // wait until the cover has fully opened
-  if (flipped >= totalPages - 1) return;         // already on the LAST page (THE END)
+function goNext(fromDrag) {
+  if (!canTurn(1)) return false;
   animating = true;
   const leaf = leaves[flipped];                  // the page to turn
   flipped++;
-  turnLeaf(leaf);
+  turnLeaf(leaf, fromDrag);
+  return true;
 }
-function goPrev() {
-  if (!opened || !ready || animating) return;   // wait until the cover has fully opened
-  if (flipped <= 0) return;               // already on the first page
+function goPrev(fromDrag) {
+  if (!canTurn(-1)) return false;
   animating = true;
   flipped--;
-  turnLeaf(leaves[flipped]);
+  turnLeaf(leaves[flipped], fromDrag);
+  return true;
 }
 
-/* ---- Nav state (page counter removed) ----------------------------------- */
+/* ---- Nav state — ONE owner for all three controls -----------------------
+   HIDDEN, NOT GREYED: a dead control is never shown. Both .is-hidden and the
+   `disabled` attribute are set, so the button also drops out of the tab order
+   and can't be activated by a stray keypress. */
+function setNavVisible(btn, visible) {
+  if (!btn) return;
+  btn.classList.toggle("is-hidden", !visible);
+  btn.disabled = !visible;
+}
 function updateProgress() {
-  // HOME button appears as soon as the cover OPENS (not after the open finishes) —
-  // hidden on the cover and on the last page (THE END, which has its own Replay).
-  if (homeBtn) homeBtn.classList.toggle("show", opened && flipped < totalPages - 1);
-  if (cornerPrev) cornerPrev.disabled = !ready || flipped <= 0;             // grey the back corner at page 1
-  if (cornerNext) cornerNext.disabled = !ready || flipped >= totalPages - 1; // grey forward on THE END page
+  const onLastPage = flipped >= totalPages - 1;              // THE END (has its own Replay)
+  const closing    = document.body.classList.contains("is-closing");
+  // HOME appears as soon as the cover OPENS (not after the open finishes) and
+  // stays available for the whole read — it is never gated.
+  setNavVisible(homeBtn,    opened && !closing && !onLastPage);
+  // The arrows show exactly when they'd DO something — same predicate the turn
+  // itself is guarded by, so a visible arrow is never a dead one.
+  setNavVisible(cornerPrev, navAvailable(-1));
+  setNavVisible(cornerNext, navAvailable(1));
 }
 
 /* ---- Fullscreen: go FULLSCREEN when the book opens (the Play tap is the user
@@ -621,7 +704,14 @@ function resetToStart() {
   leaves.forEach(function (leaf) {
     var vv = leaf.querySelector("video.page-media");
     if (vv) { try { vv.pause(); vv.currentTime = 0; } catch (_) {} }
+    // Wipe any leftover flip/drag state so a leaf can't come back mid-turn.
+    leaf.classList.remove("flipping", "unflipping");
+    leaf.style.transition = "none";
+    leaf.style.transform = "";
+    leaf.style.zIndex = "";
   });
+  void flipbookEl.offsetWidth;                 // commit the wipe with no transition
+  leaves.forEach(function (leaf) { leaf.style.transition = ""; });
   lastMediaIdx = -1;
   updateLbdOverlay();                          // safety: never leave the game overlay up on the cover
   document.body.classList.remove("is-open", "is-closing");
@@ -634,9 +724,8 @@ function resetToStart() {
   bookFloat.classList.remove("rest");          // resume the idle bob
   tapCatcher.style.pointerEvents = "auto";     // Play is tappable again
   hideFlipHint(); clearTimeout(idleHintTimer); clearTimeout(nudgeHideTimer);
-  if (homeBtn) homeBtn.classList.remove("show");
-  try { bgMusic.pause(); bgMusic.currentTime = 0; } catch (_) {}   // stop music; restarts on Play
-  updateProgress();                            // hides the progress read-out (not opened)
+  stopBgMusic();                               // stop + rewind the music; restarts on Play
+  updateProgress();                            // hides all three nav controls (not opened)
 }
 
 /* ---- CLOSE THE BOOK: the cover swings SHUT — the exact REVERSE of the opening
@@ -647,10 +736,12 @@ function closeBookToCover(afterReset) {
   ready = false;                               // block flips during the close
   clearTimeout(_openTimer);
   clearTimeout(_homeTimer);
+  clearTimeout(_flipTimer);                    // abandon a page turn still in flight
+  animating = false;
   hideFlipHint(); clearTimeout(idleHintTimer); clearTimeout(nudgeHideTimer);
   if (cornerNext) cornerNext.classList.remove("blink", "blink1");
-  if (homeBtn) homeBtn.classList.remove("show");
   var v = currentVideo(); if (v) { try { v.pause(); } catch (_) {} }
+  if (lbdFullscreen) setLbdFullscreen(false);  // never close out from under a fullscreen overlay
   updateLbdOverlay();                          // Home tapped ON the game page → hide + reset the game overlay
   // pages back UNDER the cover, so the closing cover sweeps over them
   flipbookEl.style.zIndex = "";
@@ -661,6 +752,7 @@ function closeBookToCover(afterReset) {
   // is-closing keeps the current page bright (hides the dark thickness block) and
   // hides the turned-page pile, so the cover folds cleanly with no stray left page.
   document.body.classList.add("is-closing");
+  updateProgress();                            // is-closing → all three controls hide now
   book.classList.remove("open");
   book.classList.add("closing");
   playCoverFlip();
@@ -680,7 +772,9 @@ function replayBook() {
 /* ---- HOME: close the book (reverse of the opening swing) and land on the front
    cover. Only available while reading. ------------------------------------ */
 function goHome() {
-  if (!opened || animating) return;
+  // NEVER gated: HOME stays usable at every moment of the read, including mid-page-turn
+  // (closeBookToCover abandons the in-flight flip) and on a gated page.
+  if (!opened) return;                                               // nothing to close
   if (!ready) { clearTimeout(_openTimer); resetToStart(); return; }  // tapped mid-open → snap back to the cover
   closeBookToCover();
 }
@@ -740,7 +834,7 @@ if (homeBtn) homeBtn.addEventListener("click", function (e) { e.stopPropagation(
   }
 
   flipbookEl.addEventListener("pointerdown", function (e) {
-    if (!opened || !ready || animating) return;
+    if (!opened || !ready || animating || lbdFullscreen) return;
     startX = e.clientX; startY = e.clientY;
     lastX = e.clientX; lastT = e.timeStamp || performance.now(); vx = 0;
     decided = false; dragging = true; leaf = null; dir = 0; curlEl = null;
@@ -756,8 +850,10 @@ if (homeBtn) homeBtn.addEventListener("click", function (e) { e.stopPropagation(
     const dx = e.clientX - startX, dy = e.clientY - startY;
     if (!decided) {
       if (Math.abs(dx) < DECIDE || Math.abs(dx) <= Math.abs(dy)) return;   // wait for a clear horizontal drag
-      if (dx < 0 && flipped < totalPages - 1) { dir = 1;  leaf = leaves[flipped]; }     // turn forward (stop at THE END page)
-      else if (dx > 0 && flipped > 0)         { dir = -1; leaf = leaves[flipped - 1]; } // turn back
+      // Same guard set as the buttons and the keyboard — a drag can never reach a
+      // page the NEXT/BACK buttons refuse (gate locked, THE END, page 1, …).
+      if (dx < 0 && canTurn(1))       { dir = 1;  leaf = leaves[flipped]; }     // turn forward
+      else if (dx > 0 && canTurn(-1)) { dir = -1; leaf = leaves[flipped - 1]; } // turn back
       else { dragging = false; return; }                  // nothing to turn that way
       decided = true;
       leaf.style.transition = "none";                     // follow the finger exactly
@@ -784,36 +880,33 @@ if (homeBtn) homeBtn.addEventListener("click", function (e) { e.stopPropagation(
     // Complete the turn if it's been dragged far enough OR flicked quickly in
     // the turn's direction — no need to drag all the way past halfway.
     const flick = (D === 1) ? (vx < -FLICK) : (vx > FLICK);
-    const complete   = (D === 1) ? (ang > FINISH_DEG || flick)
-                                 : (ang < 180 - FINISH_DEG || flick);
-    const endFlipped = (D === 1) ? complete   : !complete;    // does this leaf end up turned?
-
-    animating = true;
+    const complete = (D === 1) ? (ang > FINISH_DEG || flick)
+                               : (ang < 180 - FINISH_DEG || flick);
     if (C) C.style.opacity = "";
-    if (complete) { playFlip(); flipped += (D === 1) ? 1 : -1; }
-    // Lock in the resting classes + z-index NOW (so nothing pops in later), then
-    // animate the inline transform from the dragged angle to the target. The
-    // .flipped class already holds the same final angle underneath.
+
+    // A COMPLETED drag is a real navigation, so it goes through the SAME
+    // goNext/goPrev the buttons and the keyboard use — no duplicate flip logic,
+    // every guard inherited. `true` tells turnLeaf the leaf is already sitting at
+    // the dragged angle, so the CSS transition carries on from there.
+    if (complete && ((D === 1) ? goNext(true) : goPrev(true))) return;
+
+    // Not far enough (or a guard refused) → SNAP BACK. No page change, so this is
+    // a cancelled gesture rather than a navigation: just release the leaf and let
+    // the CSS transition carry it from the dragged angle to its resting angle.
+    animating = true;
     L.style.transition = "";                              // restore the CSS flip transition
     void L.offsetWidth;                                   // reflow so it animates FROM the dragged angle
     L.classList.add("flipping");                          // curl shading during the snap
-    renderLeaves();                                       // apply .flipped + z-index immediately
-    refreshMedia();                                       // START the target video INSTANTLY
-    L.style.transform = endFlipped ? "rotateY(-180deg)" : "rotateY(0deg)";
-    updateProgress();
-
-    setTimeout(function () {
+    L.style.transform = "";                               // → back to its resting angle
+    clearTimeout(_flipTimer);
+    _flipTimer = setTimeout(function () {
       L.classList.remove("flipping");
       L.classList.remove("unflipping");   // back-drag finished — re-arm the ghosting guard
-      // Drop the inline transform WITHOUT re-animating: the .flipped class already
-      // holds the final angle, so disabling the transition for this swap prevents
-      // the leaf from briefly swinging back (the "page reappears on the left" glitch).
       L.style.transition = "none";
       L.style.transform = "";
       void L.offsetWidth;                                 // commit with no transition
       L.style.transition = "";                            // restore for the next turn
-      animating = false; updateProgress();
-      refreshMedia();                                     // re-assert once settled (idempotent safety net)
+      animating = false; updateZ(); updateProgress();
     }, FLIP_MS + 40);
   }
   flipbookEl.addEventListener("pointerup", endDrag);
@@ -875,13 +968,16 @@ window.addEventListener("orientationchange", onViewportChange);
    (a user gesture).
    (The old title voice-over "the story night.ogg" and looping "BG Music.mp3"
    referenced files that were never shipped — every load fired two 404s and
-   played nothing. That dead code has been removed; playTitleVo/playBgMusic
-   remain as no-ops so existing call sites stay valid.)
+   played nothing. That dead code has been removed; playTitleVo/playBgMusic/
+   stopBgMusic remain as no-ops so existing call sites stay valid.)
    ========================================================================== */
 let muted = true;
 let _titleVoPlayed = false;      // kept for the Replay flow's reset
 function playTitleVo() {}        // no-op: title VO asset was never shipped
 function playBgMusic() {}        // no-op: BG music asset was never shipped
+// Paired with playBgMusic() and called by the Home / Replay teardown. If music is
+// ever shipped, implement the stop + rewind HERE — resetToStart already calls it.
+function stopBgMusic() {}        // no-op: BG music asset was never shipped
 
 /* ---- Pause ALL audio when the tab / window goes to the background -----------
    Background music AND the current page's video (its voice-over) must stop the

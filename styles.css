@@ -139,41 +139,6 @@
   }
   body.is-open .book-frame { opacity: 1; }
 
-  /* Flip arrows OUTSIDE the book, fixed at the viewport's bottom corners
-     (bottom-left = back, bottom-right = forward). position:fixed so they escape
-     the scaled/transformed book layer and never cover the pages or their
-     corners (which keeps turn.js's hover page-curl working on every corner). */
-  /* Bare arrow icons — NO circle: no background fill, no box-shadow, no border,
-     no rounded pill. Only the arrow glyph shows, same position/size, clickable. */
-  /* Flip arrows OUTSIDE the book, fixed at the viewport's bottom corners. */
-  .corner-arrow {
-    position: fixed; bottom: clamp(-16px, -0.9vh, -6px); z-index: 700;  /* nudged a bit lower */
-    width: clamp(52px, 6vw, 70px); height: clamp(52px, 6vw, 70px);
-    border: none; background: none; color: var(--accent-2);   /* moon-gold: visible on the night bg */
-    filter: drop-shadow(0 2px 7px rgba(0,0,0,0.55));           /* legible over any page */
-    display: none; align-items: center; justify-content: center;
-    cursor: pointer; opacity: 0;
-    transition: opacity 400ms ease, transform 150ms ease;
-  }
-  body.is-open .corner-arrow { display: flex; opacity: 0.96; }
-
-  /* HOME button — top-left, moon-gold like the arrows. JS toggles .show (only
-     while reading; hidden on the cover, the last page and the end). */
-  .home-btn {
-    position: fixed; top: clamp(2px, 0.6vh, 8px); right: clamp(8px, 1.6vw, 22px); z-index: 720;
-    width: clamp(40px, 4.6vw, 56px); height: clamp(40px, 4.6vw, 56px);
-    border: none; background: none; color: var(--accent-2);
-    filter: drop-shadow(0 2px 7px rgba(0,0,0,0.55));
-    display: none; align-items: center; justify-content: center;
-    cursor: pointer; opacity: 0; padding: 0;
-    transition: opacity 360ms ease, transform 150ms ease;
-  }
-  .home-btn.show   { display: flex; opacity: 0.96; }
-  .home-btn:hover  { transform: scale(1.1); }
-  .home-btn:active { transform: scale(0.9); }
-  .home-btn:focus, .home-btn:focus-visible { outline: none; }
-  .home-btn svg { width: 92%; height: 92%; }
-
   /* While the viewport is actively resizing / the resolution is changing, freeze
      the page-turn transitions so the book can't appear to auto-flip (JS adds
      .is-resizing during resize and removes it ~220ms after it settles). */
@@ -181,17 +146,86 @@
   body.is-resizing .leaf .curl,
   body.is-resizing #flipbook,
   body.is-resizing .flip-scale { transition: none !important; animation: none !important; }
-  .corner-arrow:hover  { transform: scale(1.12); }
-  .corner-arrow:active { transform: scale(0.9); }
-  /* No focus ring: long-press / repeated taps were leaving a white outline box
-     around the arrow. (Flipping still works via keys, drag, and the arrows.) */
-  .corner-arrow:focus,
-  .corner-arrow:focus-visible { outline: none; box-shadow: none; }
-  .corner-arrow[disabled] { opacity: 0.22; pointer-events: none; }
-  .corner-arrow.back { left: clamp(12px, 2.5vw, 34px); }
+
+  /* ==========================================================================
+     NAV CONTROL SET  —  BACK · NEXT · HOME
+     ---------------------------------------------------------------------------
+     Three buttons, ONE control set: identical box size, identical visual weight,
+     mirrored placement. position:fixed so they escape the scaled/transformed
+     book layer and never cover the pages or their corners (which keeps the
+     hover page-curl working on every corner).
+     Bare glyph only — NO background fill, NO border, NO box-shadow, NO pill.
+     Only the arrow/house shows; the whole box stays clickable.
+
+     ⚠ GEOMETRY IS MIRRORED IN JS. The box size and the horizontal insets below
+       are duplicated in navMetrics() in script.js, so fitScale() can reserve the
+       buttons' footprint and the artwork can never sit under them.
+       IF YOU CHANGE THE CLAMPS HERE, CHANGE THEM THERE IN THE SAME COMMIT.
+     ========================================================================== */
+  .corner-arrow,
+  .home-btn {
+    position: fixed;
+    /* kid-friendly tap target — same box for all three */
+    width:  clamp(84px, 10vw, 124px);
+    height: clamp(84px, 10vw, 124px);
+    padding: 0; border: none; background: none;
+    color: var(--accent-2);                            /* accent gold */
+    filter: drop-shadow(0 2px 7px rgba(0,0,0,0.55));   /* legible over any page artwork */
+    display: none; align-items: center; justify-content: center;
+    cursor: pointer; opacity: 0;
+    transition: opacity 400ms ease, transform 150ms ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* Placement. The negative top/bottom deliberately lifts the glyph clear of the
+     content frame's corner. */
+  .corner-arrow      { z-index: 700; bottom: clamp(-10px, -0.5vh, -2px); }
+  .corner-arrow.back { left:  clamp(12px, 2.5vw, 34px); }
   .corner-arrow.fwd  { right: clamp(12px, 2.5vw, 34px); }
-  .corner-arrow svg  { width: 58%; height: 58%; }
-  .corner-arrow.back svg { transform: scaleX(-1); }   /* mirror the forward arrow */
+  .home-btn {
+    z-index: 720;
+    top:   clamp(-12px, -0.9vh, -4px);
+    right: clamp(8px, 1.6vw, 22px);
+  }
+
+  /* Glyphs. BACK is the SAME svg as NEXT, mirrored — one path, two buttons.
+     The house is 65% (not 62%) so its OPTICAL weight matches the arrows; do not
+     "fix" this by equalising the two numbers. */
+  .corner-arrow svg      { width: 62%; height: 62%; }
+  .home-btn svg          { width: 65%; height: 65%; }
+  .corner-arrow.back svg { transform: scaleX(-1); }
+
+  /* Reading state — the set appears the moment the cover opens. */
+  body.is-open .corner-arrow,
+  body.is-open .home-btn { display: flex; opacity: 0.96; }
+
+  .corner-arrow:hover,  .home-btn:hover  { transform: scale(1.12); }
+  .corner-arrow:active, .home-btn:active { transform: scale(0.9); }
+
+  /* No focus ring: long-press / repeated taps were leaving a white outline box
+     around the button. (Flipping still works via keys, drag, and the buttons.) */
+  .corner-arrow:focus, .corner-arrow:focus-visible,
+  .home-btn:focus,     .home-btn:focus-visible { outline: none; box-shadow: none; }
+
+  /* HIDDEN, NOT GREYED — never show a dead control. updateProgress() owns all
+     three and sets BOTH .is-hidden and [disabled].
+     ⚠ SPECIFICITY: `body.is-open .corner-arrow` above is (0,2,1), so a plain
+       `.corner-arrow[disabled]` (0,2,0) would LOSE and the dead button would
+       render full-bright. Every dead-state selector is therefore duplicated
+       with the same body.is-open prefix. */
+  .corner-arrow.is-hidden, .corner-arrow[disabled],
+  .home-btn.is-hidden,     .home-btn[disabled],
+  body.is-open .corner-arrow.is-hidden, body.is-open .corner-arrow[disabled],
+  body.is-open .home-btn.is-hidden,     body.is-open .home-btn[disabled] {
+    display: none; opacity: 0; pointer-events: none;
+  }
+
+  /* APPEAR: display:none kills the opacity transition, so the fade-in is a
+     ONE-SHOT keyframe on the button's SVG. Deliberately on the svg and
+     opacity-only — on the button it would override the blink animations, and a
+     transform would fight BACK's scaleX(-1). */
+  @keyframes navFadeIn { from { opacity: 0; } to { opacity: 1; } }
+  body.is-open .corner-arrow svg,
+  body.is-open .home-btn svg { animation: navFadeIn 400ms ease both; }
 
   /* ---- Page-turn hint (hand on the RIGHT side of the book) -------------------
      Guidance for HOW to turn the page: a 3D hand on the book's right edge does a
@@ -231,8 +265,12 @@
     25%, 75% { opacity: 0.3;  filter: drop-shadow(0 2px 7px rgba(0,0,0,0.55)) drop-shadow(0 0 3px  rgba(246,184,30,0.25)); }
     50%      { opacity: 1;    filter: drop-shadow(0 2px 7px rgba(0,0,0,0.55)) drop-shadow(0 0 18px rgba(246,184,30,1)); }
   }
+  /* Reduced motion: kill the blink + the appear fade, but leave the three
+     buttons and their positions exactly as they are. */
   @media (prefers-reduced-motion: reduce) {
     .flip-hint.show, .corner-arrow.blink, .corner-arrow.blink1 { animation: none; }
+    body.is-open .corner-arrow svg,
+    body.is-open .home-btn svg { animation: none; }
   }
 
   /* ==========================================================================
