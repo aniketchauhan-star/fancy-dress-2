@@ -81,6 +81,7 @@
   }
   var currentVO = null;
   var voMuted = false;   // global voice-over mute (respects the game's sound settings)
+  var oneShots = {};     // src -> small pool of elements for repeatable cues
   var AudioMgr = {
     play: function (src) { // like AudioSource.clip=; Play() — single VO channel
       this.stop();
@@ -100,7 +101,26 @@
     current: function () { return currentVO; },
     setMuted: function (m) { voMuted = !!m; if (currentVO) currentVO.muted = voMuted; },
     isMuted: function () { return voMuted; },
-    playOneShot: function (src) { if (voMuted) return; var a = getAudio(src); if (!a) return; var c = a.cloneNode(); c.muted = false; var p = c.play(); if (p && p.catch) p.catch(function () { }); },
+    // One-shot (button click, "try again"): reuses a small pool per clip instead of cloning a new
+    // <audio> element on every play, so repeated taps cannot pile up detached media elements.
+    playOneShot: function (src) {
+      if (voMuted || !src) return;
+      var pool = oneShots[src];
+      if (!pool) {
+        var base = getAudio(src); if (!base) return;
+        pool = oneShots[src] = [base];
+      }
+      var free = null;
+      for (var i = 0; i < pool.length; i++) if (pool[i].paused || pool[i].ended) { free = pool[i]; break; }
+      if (!free) {
+        if (pool.length >= 3) return;            // already three of the same cue in flight: enough
+        free = pool[0].cloneNode();
+        pool.push(free);
+      }
+      free.muted = false;
+      try { free.currentTime = 0; } catch (e) { }
+      var p = free.play(); if (p && p.catch) p.catch(function () { });
+    },
     duration: function (src) {
       return new Promise(function (res) {
         var a = getAudio(src); if (!a) return res(0);
@@ -358,6 +378,21 @@
     global.__updateOrientation = update;
   }
 
+  // A hidden tab stops requestAnimationFrame but not <audio>, so a narration would keep playing
+  // while its text sat frozen, and the line would jump on return. Pausing the whole spoken line
+  // (voice + reveal together) and resuming it on the way back keeps them in step.
+  function setupVisibility() {
+    document.addEventListener("visibilitychange", function () {
+      var VO = global.VoiceTextSync;
+      if (document.hidden) {
+        if (VO && VO.pauseAll) VO.pauseAll(); else AudioMgr.pause();
+        if (global.SFX && global.SFX.stop) global.SFX.stop();
+      } else {
+        if (VO && VO.resumeAll) VO.resumeAll(); else AudioMgr.resume();
+      }
+    });
+  }
+
   function boot(layout) {
     stage = document.getElementById("stage");
     stage.style.width = REF_W + "px";
@@ -375,37 +410,111 @@
     window.addEventListener("resize", computeScale);
     window.addEventListener("orientationchange", computeScale);
     setupOrientation();
+    setupVisibility();
+  }
+
+  /* ---------------- asset preloading ----------------
+     Sprites are swapped in at runtime (the pan item changes with the learner's choice, cards
+     flip to their correct/wrong art, blocks turn red). A background-image only starts
+     downloading when the style is applied, so on a cold cache the art lands a beat AFTER the
+     screen has already changed — the item appeared to "pop in late". Warming every sprite at
+     boot removes that. VO clips are fetched metadata-only, which is all the text/voice sync
+     needs to read a clip's true length (without it the reveal falls back to an estimate). */
+  var warmed = {};
+  function preloadImages(paths) {
+    (paths || []).forEach(function (p) {
+      if (!p || warmed[p]) return;
+      var im = new Image(); im.src = p; warmed[p] = im;
+    });
+  }
+  /* Fetch AND decode, resolving when the bitmap is ready to paint — a warmed-but-undecoded image
+     still costs a frame the moment it is first shown. Resolves either way; a broken file must not
+     hold a screen back (there is a hard cap in _warmAssets' caller). */
+  function decodeImages(paths) {
+    var jobs = (paths || []).filter(Boolean).map(function (p) {
+      var im = warmed[p];
+      if (!im || !im.src) { im = new Image(); im.src = p; warmed[p] = im; }
+      if (im.decode) return im.decode().catch(function () { });
+      if (im.complete) return Promise.resolve();
+      return new Promise(function (res) {
+        im.addEventListener("load", res, { once: true });
+        im.addEventListener("error", res, { once: true });
+      });
+    });
+    return Promise.all(jobs);
+  }
+  function preloadAudioMeta(paths) {
+    (paths || []).forEach(function (p) {
+      if (!p || warmed[p]) return;
+      var a = getAudio(p); if (!a) return;
+      a.preload = "metadata";
+      warmed[p] = a;
+      try { a.load(); } catch (e) { }
+    });
+  }
+
+  /* ---------------- pop cue ----------------
+     A short bounce on the thing the narration is naming right now (see VoiceTextSync cues).
+     `origin` lets a caller bounce from the base — an item half-sunk in a pan should grow
+     upward out of the bowl, not in both directions. The node's own inline transform-origin is
+     saved and restored, and re-popping mid-bounce restarts cleanly. */
+  var POP_MS = 500;
+  function pop(idOrEl, opts) {
+    var el = typeof idOrEl === "string" ? get(idOrEl) : idOrEl;
+    if (!el) return;
+    if (global.matchMedia && global.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (el._popTimer) {
+      clearTimeout(el._popTimer);
+      el.classList.remove("vo-pop");
+      void el.offsetWidth;                 // reflow, so the animation restarts
+    }
+    var origin = opts && opts.origin;
+    if (origin) {
+      if (el._popOrigin == null) el._popOrigin = el.style.transformOrigin;
+      el.style.transformOrigin = origin;
+    }
+    el.classList.add("vo-pop");
+    el._popTimer = setTimeout(function () {
+      el.classList.remove("vo-pop");
+      if (el._popOrigin != null) { el.style.transformOrigin = el._popOrigin; el._popOrigin = null; }
+      el._popTimer = null;
+    }, POP_MS + 40);
   }
 
   /* ---------------- effects ---------------- */
   function confetti(centerId) {
-    var reg = nodes[centerId]; var host = reg ? reg.el.parentNode : stage;
+    // Cheer and burst start on the same frame: the sound is asked for here, and the first
+    // transform is written in the same animation frame the pieces are added in.
+    var cheered = global.SFX && global.SFX.celebrate ? global.SFX.celebrate() : false;
     var c = nodeCenterRef(centerId) || { x: REF_W / 2, y: REF_H / 2 };
     var colors = ["#ffd23f", "#ff6b6b", "#4ecdc4", "#a06cd5", "#3bceac", "#ff922b", "#f9f871"];
     var layer = document.createElement("div"); layer.className = "confetti-layer";
     stage.appendChild(layer);
-    var N = 70;
+    var LIFE = 1.6, N = 70, pieces = [];
     for (var i = 0; i < N; i++) {
       var p = document.createElement("div"); p.className = "confetti-piece";
       var ang = Math.random() * Math.PI * 2, spd = 300 + Math.random() * 520;
-      var vx = Math.cos(ang) * spd, vy = Math.sin(ang) * spd - 350;
       p.style.left = c.x + "px"; p.style.top = c.y + "px";
       p.style.background = colors[i % colors.length];
       p.style.width = (8 + Math.random() * 10) + "px"; p.style.height = (10 + Math.random() * 14) + "px";
       layer.appendChild(p);
-      (function (p, vx, vy) {
-        var t0 = performance.now();
-        function anim(now) {
-          var t = (now - t0) / 1000;
-          var x = c.x + vx * t, y = c.y + vy * t + 700 * t * t;
-          p.style.transform = "translate(" + (x - c.x) + "px," + (y - c.y) + "px) rotate(" + (t * 720) + "deg)";
-          p.style.opacity = Math.max(0, 1 - t / 1.6);
-          if (t < 1.6) requestAnimationFrame(anim); else p.remove();
-        }
-        requestAnimationFrame(anim);
-      })(p, vx, vy);
+      pieces.push({ el: p, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd - 350, spin: 480 + Math.random() * 480 });
     }
-    setTimeout(function () { layer.remove(); }, 2000);
+    // ONE animation loop for the whole burst (it used to be one rAF per piece, i.e. 70 loops),
+    // writing only transform and opacity so nothing triggers layout.
+    var t0 = performance.now();
+    (function step(nowMs) {
+      var t = (nowMs - t0) / 1000;
+      var fade = 1 - t / LIFE;
+      for (var k = 0; k < pieces.length; k++) {
+        var q = pieces[k];
+        q.el.style.transform = "translate(" + (q.vx * t) + "px," + (q.vy * t + 700 * t * t) + "px) rotate(" + (t * q.spin) + "deg)";
+        q.el.style.opacity = fade > 0 ? fade : 0;
+      }
+      if (t < LIFE) requestAnimationFrame(step);
+      else if (layer.parentNode) layer.parentNode.removeChild(layer);   // no stray timer
+    })(t0);
+    return cheered;
   }
 
   global.Engine = {
@@ -415,7 +524,8 @@
     setScale: setScale, getScale: getScale, nodeCenterRef: nodeCenterRef,
     tween: tween, wait: wait, ease: ease, Ease: Ease,
     TaskGroup: TaskGroup, ck: ck, onTick: onTick,
-    Audio: AudioMgr, confetti: confetti,
+    Audio: AudioMgr, confetti: confetti, pop: pop,
+    preloadImages: preloadImages, decodeImages: decodeImages, preloadAudioMeta: preloadAudioMeta,
     nodes: nodes, stageEl: function () { return stage; }, applyImage: applyImage
   };
 })(window);

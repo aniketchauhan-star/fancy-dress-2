@@ -1,3 +1,7 @@
 # Deploy ignore — dev tooling only, never ship these
 .vscode/
 *.md
+# the game's God Mode dev/QA suite — its <script> tags are already stripped from
+# game/index.html, this keeps the ~files out of the deploy too
+game/god-mode/
+game/vercel.json

@@ -1,15 +1,13 @@
 <!DOCTYPE html>
-<!-- Balancing Act — learner build embedded in the flipbook (god-mode dev suite
-     removed). embed-bridge.js talks to the parent flipbook via postMessage and
-     preloads all level art + voice-overs during idle time. -->
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Fancy Dress 2 — Balancing Act</title>
-  <!-- Inline favicon (data URI) — avoids the favicon.ico 404 when opened standalone. -->
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='0.9em' font-size='90'%3E%E2%9A%96%3C/text%3E%3C/svg%3E" />
-  <link rel="stylesheet" href="css/style.css?v=2" />
+  <!-- The display face is used by the very first line of text; preloading it means the text is
+       drawn in Lilita One from the start instead of swapping fonts and re-flowing. -->
+  <link rel="preload" href="assets/fonts/LilitaOne-Regular.ttf" as="font" type="font/ttf" crossorigin />
+  <link rel="stylesheet" href="css/style.css?v=8" />
   <link rel="stylesheet" href="needle-fix.css?v=2" />
 </head>
 <body>
@@ -17,12 +15,20 @@
     <div id="stage"></div>
   </div>
   <script src="js/data.js"></script>
-  <script src="js/engine.js?v=2"></script>
-  <script src="js/vo-sync.js"></script>
-  <script src="js/controllers.js"></script>
+  <script src="js/sfx.js?v=8"></script>
+  <script src="js/engine.js?v=8"></script>
+  <script src="js/vo-sync.js?v=8"></script>
+  <script src="js/controllers.js?v=8"></script>
   <script src="js/main.js"></script>
   <script src="needle-fix.js?v=2"></script>
-  <!-- Flipbook embed bridge: postMessage handshake + idle-time asset preloader -->
+  <!-- Flipbook handshake (LAST, after main.js): "Let's Go" → the book expands this
+       iframe to fullscreen; game over → the book shrinks it back and turns the
+       page. Also warms every level's art + VO while the intro screen is up.
+       No-ops when the game is opened standalone (not in an iframe). -->
   <script src="js/embed-bridge.js"></script>
+
+  <!-- God Mode developer & testing suite: NOT shipped in the learner build (the
+       tags are removed here on purpose — the god-mode/ folder is kept for dev,
+       and .vercelignore keeps it out of the deploy). -->
 </body>
 </html>

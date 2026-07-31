@@ -92,6 +92,18 @@
     E.setInteractable(btnId, state);
     if (cgId) E.setAlpha(cgId, state ? 1 : (this.c.disabledAlpha != null ? 0.4 : 0.4));
   };
+  // Both of this level's item sprites, decoded and ready to paint. Capped at 2.5s so a missing or
+  // undecodable file degrades to "show it when it arrives" instead of blocking the level.
+  WeightMeasuringGame.prototype.itemArtReady = function () {
+    if (!this._artReady) {
+      var paths = [this.c.bookSprite && this.c.bookSprite.path, this.c.bagSprite && this.c.bagSprite.path];
+      this._artReady = Promise.race([
+        E.decodeImages(paths),
+        new Promise(function (res) { setTimeout(res, 2500); })
+      ]);
+    }
+    return this._artReady;
+  };
   WeightMeasuringGame.prototype.selectBook = function () {
     this.correctCubeCount = this.bookCorrectCubeCount;
     if (this.c.leftBasketItemImage && this.c.bookSprite) {
@@ -108,42 +120,80 @@
     }
     this.startGameplay();
   };
-  // NOTE: the item image node is authored by the scene INSIDE left>Basket>Image, already
-  // seated in the bowl and already a descendant of the left pan, so it rides the tilt.
-  // We swap its sprite (preserveAspect) and — for tightly-cropped art that would otherwise
-  // overflow the bowl — reseat it via ITEM_DISPLAY (see _seatItem). Items without an
-  // override keep their authored size/position, so the ones that already look right are
-  // untouched.
+  // NOTE: the item image node is authored by the scene INSIDE left>Basket>Image, already a
+  // descendant of the left pan, so it rides the tilt. We swap its sprite (preserveAspect)
+  // and reseat it in the bowl via _seatItem below.
   //
-  // Baseline = where a well-seated item's VISIBLE bottom lands, measured in the Image
-  // container's coordinate space (px from its top). Derived from the mug (level 2), which
-  // seats perfectly with its art bottom at ~145. Overridden items whose art fills their box
-  // rest their box bottom here so they sit on the same spot in the bowl.
-  WeightMeasuringGame.ITEM_BASELINE = 200;
-  WeightMeasuringGame.ITEM_DISPLAY = {
-    // Pencil-box bag: art is cropped to the edges, so at the 514² slot it renders ~1.5×
-    // the bowl width and juts out the right side and top. Seat it at a bowl-sized box.
-    "assets/img/ChatGPT_Image_Mar_12__2026__03_23_00_PM__1__2.webp": { w: 300, h: 300, rot: 0 },
-    // Doll: size + exact placement tuned via the live editor (requested).
-    "assets/img/IMG_5014_1.webp": { w: 546.83, h: 508.17, left: -128.6, top: -210, rot: 0 }
+  // Every item is seated from the sprite's PAINTED bounds rather than its box, because the
+  // transparent padding around the art differs wildly between sprites (the doll's art fills
+  // 31% of its image width, the mug's 84%). Seating by box therefore put each item at a
+  // different height in the bowl — one floating above the rim, the next buried in it.
+  //
+  // `art` = [left, top, width, height] of the opaque pixels as a fraction of the source
+  // image (measured off the shipped webp files). `vw` = how wide that painted art should
+  // render, in reference px — the authored sizes, which encode how big each object should
+  // look relative to the others.
+  // `word` is the part of the narration that names this item, used to bounce it on cue.
+  WeightMeasuringGame.ITEM_ART = {
+    // level 1 — book / pencil box
+    "assets/img/ChatGPT_Image_Nov_21__2025__06_10_02_PM_2__1_.webp": { nat: [514, 514], art: [0.2179, 0.2179, 0.5700, 0.5564], vw: 285, word: "book" },
+    "assets/img/ChatGPT_Image_Mar_12__2026__03_23_00_PM__1__2.webp": { nat: [277, 277], art: [0.0289, 0.2094, 0.8736, 0.6209], vw: 262, word: "box" },
+    // level 2 — bottle / mug
+    "assets/img/BTL_1.webp": { nat: [161, 319], art: [0.1429, 0.0815, 0.7267, 0.8527], vw: 99, word: "bottle" },
+    "assets/img/MG.webp": { nat: [176, 169], art: [0.0852, 0.0888, 0.8409, 0.8402], vw: 114, word: "mug" },
+    // level 3 — teddy bear / doll
+    // teddy bear at 0.98 of its authored width (244 -> 239), as requested
+    "assets/img/teddy_1.webp": { nat: [289, 331], art: [0.0692, 0.1088, 0.8443, 0.8429], vw: 239, word: "teddy" },
+    "assets/img/IMG_5014_1.webp": { nat: [560, 560], art: [0.3429, 0.2679, 0.3143, 0.4643], vw: 160, word: "doll" },
+    // level 4 — pumpkin / watermelon
+    "assets/img/pumpkin_01_1.webp": { nat: [634, 423], art: [0.3092, 0.2293, 0.3817, 0.5437], vw: 242, word: "pumpkin" },
+    "assets/img/water_melon_01.webp": { nat: [634, 423], art: [0.3817, 0.2766, 0.2366, 0.4421], vw: 150, word: "watermelon" }
   };
-  // Resize/reposition the item node in its own coordinate space (it stays a child of the
-  // Image container, so it keeps riding the pan tilt). Horizontally centred on the bowl,
-  // its box bottom seated on the shared baseline.
+  // Painted bounds of the pan sprite (The_Fancy_Dress_Competition_-_1__3__2.webp), same
+  // fraction form. The bowl art sits inside ~64% of its box, so the box centre is NOT the
+  // bowl centre — this is what the seat is measured against.
+  WeightMeasuringGame.BOWL_ART = [0.1986, 0.1215, 0.6380, 0.5789];
+
+  // Seat the item in the bowl: painted art centred on the bowl's opening, with its middle on
+  // the rim line, so every item shows the same half-in / half-out amount. The node stays a
+  // child of the Image container, so it keeps riding the pan tilt.
+  //
+  // This runs for EVERY item, including ones with no entry in ITEM_ART (those are restored to
+  // their authored box). Both matter: the two selection items share ONE image node, so an
+  // item that skipped reseating used to inherit the previous item's box — picking the doll
+  // and then the teddy bear drew the bear at the doll's 547×508 box, i.e. ~1.9× too big and
+  // hanging out of the pan.
   WeightMeasuringGame.prototype._seatItem = function (imgId, sprite) {
-    var ov = sprite && WeightMeasuringGame.ITEM_DISPLAY[sprite.path];
-    if (!ov) return; // keep authored layout for items that already seat correctly
     var el = E.get(imgId); if (!el) return;
-    var parent = el.parentNode;
-    var cw = (parent && parseFloat(parent.style.width)) || 282.797; // Image container width
-    var cx = cw / 2;
-    el.style.width = ov.w + "px";
-    el.style.height = ov.h + "px";
-    // explicit left/top when given (live-editor tuning); else centre + seat on the baseline
-    el.style.left = (ov.left != null ? ov.left : (cx - ov.w / 2 + (ov.dx || 0))) + "px";
-    el.style.top = (ov.top != null ? ov.top : (WeightMeasuringGame.ITEM_BASELINE - ov.h + (ov.dy || 0))) + "px";
-    el.style.transform = "rotate(" + (-(ov.rot || 0)) + "deg)";
-    el.style.transformOrigin = "50% 100%"; // pivot at the base so it rests in the bowl
+    if (!el._authoredBox) {
+      el._authoredBox = { left: el.style.left, top: el.style.top, width: el.style.width, height: el.style.height, transform: el.style.transform };
+    }
+    var info = sprite && WeightMeasuringGame.ITEM_ART[sprite.path];
+    this.itemWord = info ? info.word : null;   // which spoken word bounces this item
+    var host = el.parentNode;                    // authored "Image" container
+    var basket = host && host.parentNode;        // the pan (bowl sprite)
+    if (!info || !basket) {                      // unknown sprite: authored layout, never a stale one
+      var a = el._authoredBox;
+      el.style.left = a.left; el.style.top = a.top;
+      el.style.width = a.width; el.style.height = a.height;
+      el.style.transform = a.transform;
+      return;
+    }
+    var B = WeightMeasuringGame.BOWL_ART;
+    var bw = parseFloat(basket.style.width) || 569, bh = parseFloat(basket.style.height) || 247;
+    var hostLeft = parseFloat(host.style.left) || 0, hostTop = parseFloat(host.style.top) || 0;
+    var bowlCX = (B[0] + B[2] / 2) * bw - hostLeft;   // bowl centre, in the container's space
+    var bowlRimY = B[1] * bh - hostTop;               // top of the bowl's painted rim
+    // Box the node at the sprite's own aspect ratio so background-size:contain maps 1:1
+    // (a mismatched box letterboxes the image and silently shifts the art inside it).
+    var drawW = info.vw / info.art[2];
+    var drawH = drawW * (info.nat[1] / info.nat[0]);
+    el.style.width = drawW + "px";
+    el.style.height = drawH + "px";
+    el.style.left = (bowlCX - (info.art[0] + info.art[2] / 2) * drawW) + "px";
+    el.style.top = (bowlRimY - (info.art[1] + info.art[3] / 2) * drawH) + "px";
+    el.style.transform = "none";
+    el.style.transformOrigin = "50% 50%";
   };
   WeightMeasuringGame.prototype.startGameplay = function () {
     this.cubeIndex = 0; this.targetBalance = -1;
@@ -154,8 +204,10 @@
   // A persistent sample block sitting on the centre plate between the − / + buttons
   // (matches the reference art). It's a child of the plate, so it shows/hides with the
   // gameplay panel and never interferes with the spawnable cubes in the right pan.
-  // Exact size/position tuned via the live editor (plate-local px). Applied identically to
-  // EVERY level's plate sample block (all plates are the same 461×224).
+  // Size/position tuned via the live editor (plate-local px), applied identically to EVERY level's
+  // plate sample block (all plates are the same 461×224). Deliberately bigger than the blocks in
+  // the pan: this one is the sample being offered to the learner, up front on the pedestal, while
+  // the pan blocks are sized to fit the bowl.
   WeightMeasuringGame.PLATE_CUBE = { w: 198.99, h: 178.64, left: 140, top: -34 };
   WeightMeasuringGame.prototype._ensurePlateCube = function () {
     var plusEl = E.get(this.c.plusButton); if (!plusEl) return;
@@ -178,6 +230,32 @@
     cube.style.top = cfg.top + "px";
     cube.style.transform = "none";
   };
+  /* ---- narration cues ----
+     The narration names things ("add blocks to balance the teddy bear"); these bounce the thing
+     being named at the moment the word lands, so a learner who cannot read yet still sees which
+     object the sentence is about. */
+  WeightMeasuringGame.prototype.popItem = function () {
+    // bounce from near the base: the item is half-sunk in the pan, so it should grow up out of
+    // the bowl rather than sink further into it
+    E.pop(this.c.leftBasketItemImage, { origin: "50% 92%" });
+  };
+  WeightMeasuringGame.prototype.popBlocks = function () {
+    var live = this.spawnedCubes.filter(Boolean);
+    if (live.length) {
+      live.forEach(function (cube, i) { setTimeout(function () { E.pop(cube); }, i * 45); });
+      return;
+    }
+    var plusEl = E.get(this.c.plusButton);          // nothing in the pan yet: bounce the sample
+    var plate = plusEl && plusEl.parentNode && plusEl.parentNode.querySelector('[data-name="Item 1"]');
+    if (plate && plate._plateCube) E.pop(plate._plateCube);
+  };
+  // Word -> action for the current item, handed to the voice/text controller with every line.
+  WeightMeasuringGame.prototype.narrationCues = function () {
+    var self = this, cues = [{ phrase: "block", fire: function () { self.popBlocks(); } }];
+    if (this.itemWord) cues.push({ phrase: this.itemWord, fire: function () { self.popItem(); } });
+    return cues;
+  };
+
   WeightMeasuringGame.prototype.enablePlusMinus = function () {
     this.setButtonVisual(this.c.plusButton, this.c.plusCanvasGroup, true);
     this.setButtonVisual(this.c.minusButton, this.c.minusCanvasGroup, true);
@@ -193,8 +271,15 @@
     // drive the needle from the cube counts (add / remove cube)
     if (window.ScaleNeedle) window.ScaleNeedle.setFromCounts(this.cubeIndex, this.correctCubeCount);
   };
+  /* A tap that lands while a block is still animating used to be thrown away, so a child tapping
+     quickly saw fewer blocks than taps. Taps are queued instead — still one block at a time, but
+     none is lost — and the queue is bounded by what the pan can hold. */
   WeightMeasuringGame.prototype.addCube = async function () {
-    if (this.isCubeMoving) return;
+    if (this.isCubeMoving) {
+      this._pendingAdd = Math.min((this._pendingAdd || 0) + 1, this.spawnPointsLen - this.cubeIndex);
+      this.tut.onPlusClicked();
+      return;
+    }
     this.tut.onPlusClicked();
     if (this.cubeIndex >= this.spawnPointsLen) return;
     this.isCubeMoving = true;
@@ -203,33 +288,131 @@
     var cube = this._spawnCube(idx);
     this.spawnedCubes[idx] = cube;
     this.cubeIndex++;
+    this._applyStack(true, cube);   // the row re-centres as it fills; the new block pops in place
     // scale in OutBack
     await E.tween(this.cubeScaleDuration, "OutBack", function (t) { cube.style.transform = "translate(-50%,-50%) scale(" + t + ")"; });
     this.updateScaleDynamically();
     this.isCubeMoving = false;
     this.updatePlusMinusState();
     this.enableCheckButton();
+    if (this._pendingAdd > 0) { this._pendingAdd--; this.addCube(); }   // a tap that arrived mid-animation
   };
+  /* ---- block stack geometry ----
+     The scene ships hand-placed marker points for the blocks. Their gaps drift by up to 20px
+     horizontally (64 / 70 / 71) and 19px vertically (64 / 72 / 53), and a partly filled row was
+     anchored to the pan's left instead of its centre — which is what made a pan of blocks read as
+     a jumbled heap leaning to one side.
+
+     The stack is now built from the block art's own geometry, so it reads as real cubes:
+
+       across  —  of the block: one painted width, so neighbours meet at the side corner
+                 of the drawing. Blocks read as separate cubes set against each other, which is the
+                 look the game wants (a tighter step overlaps the drawn faces and the pile reads as
+                 one mass);
+       upward  — `stepYRatio` of the block, tuned the same way, so an upper block sits on the tops
+                 of the blocks below with no background showing through the join;
+       rows    — the pyramid the markers describe (4-3-2-1, or 3-2-1 on level 1). A row of n-1
+                 blocks centred over a row of n lands in its notches, so the pyramid holds
+                 together at every count with nothing floating;
+       within  — blocks fill left to right, and the row re-centres as it fills, so the stack is
+                 both counted in reading order and always centred in the pan.
+
+     Upper rows are drawn in front, because a block resting on top covers part of the top face of
+     the blocks under it. The anchor comes from the authored markers, so the stack stays where the
+     artist placed it in the pan; BLOCK_SIZE is set so the widest row fits the bowl's painted
+     opening (see LevelManager). */
+  WeightMeasuringGame.CUBE_ART = [0.1582, 0.1412, 0.6836, 0.7175]; // painted bounds of the block sprite
+  WeightMeasuringGame.STACK = { stepXRatio: 0.6836, stepYRatio: 0.485, rowTolerance: 25, slideSeconds: 0.16 };
+
+  // Steps, anchor and row sizes — measured once per level from the markers and the pan.
+  WeightMeasuringGame.prototype._stackGeom = function () {
+    if (this._geom) return this._geom;
+    var S = WeightMeasuringGame.STACK;
+    var pts = [], host = null;
+    this.targetPoints.forEach(function (id) {
+      var reg = E.getReg(id); if (!reg) return;
+      var el = reg.el;
+      host = host || el.parentNode;
+      pts.push({
+        cx: (parseFloat(el.style.left) || 0) + (parseFloat(el.style.width) || 0) / 2,
+        cy: (parseFloat(el.style.top) || 0) + (parseFloat(el.style.height) || 0) / 2
+      });
+    });
+    if (!pts.length) return (this._geom = { caps: [], anchorX: 0, anchorY: 0, stepX: 0, stepY: 0 });
+    // authored rows, bottom first: their sizes are the pyramid, the bottom one is the anchor
+    var rows = [];
+    pts.slice().sort(function (a, b) { return b.cy - a.cy; }).forEach(function (p) {
+      var row = rows[rows.length - 1];
+      if (row && Math.abs(row[0].cy - p.cy) <= S.rowTolerance) row.push(p);
+      else rows.push([p]);
+    });
+    var sz = (this.cubePrefab && this.cubePrefab.size) || [218, 218];
+    var drawn = Math.min(sz[0], sz[1]);                  // background-size:contain squares it
+    var blockW = WeightMeasuringGame.CUBE_ART[2] * drawn;
+    var basket = host && host.parentNode;
+    var bowlW = WeightMeasuringGame.BOWL_ART[2] * ((basket && parseFloat(basket.style.width)) || 569);
+    var stepX = S.stepXRatio * drawn;
+    // widest row that still fits the bowl's painted opening: (n-1) steps plus one whole block
+    var maxPerRow = Math.max(1, Math.floor((bowlW - blockW) / stepX) + 1);
+    var caps = rows.map(function (r) { return Math.min(r.length, maxPerRow); });
+    var total = caps.reduce(function (a, b) { return a + b; }, 0);
+    while (total < pts.length) {                          // never leave a slot homeless
+      caps.push(Math.min(caps[caps.length - 1] || 1, maxPerRow));
+      total += caps[caps.length - 1];
+    }
+    var bottom = rows[0];
+    return (this._geom = {
+      caps: caps,
+      anchorX: bottom.reduce(function (s, p) { return s + p.cx; }, 0) / bottom.length,
+      anchorY: bottom[0].cy,
+      stepX: stepX,
+      stepY: S.stepYRatio * drawn
+    });
+  };
+
+  // Where the blocks belong for a given count: rows bottom-up, left to right, each row centred.
+  WeightMeasuringGame.prototype._stackPositions = function (count) {
+    var g = this._stackGeom(), out = [], left = count;
+    for (var r = 0; r < g.caps.length && left > 0; r++) {
+      var k = Math.min(left, g.caps[r]);
+      for (var i = 0; i < k; i++) {
+        out.push({ x: g.anchorX + (i - (k - 1) / 2) * g.stepX, y: g.anchorY - r * g.stepY, row: r });
+      }
+      left -= k;
+    }
+    return out;
+  };
+
+  // Re-seat the blocks already in the pan for the current count. `justSpawned` is placed
+  // directly (it should pop into its final spot, not slide in from the previous layout).
+  WeightMeasuringGame.prototype._applyStack = function (animate, justSpawned) {
+    var pos = this._stackPositions(this.cubeIndex);
+    var slide = animate && !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    var secs = WeightMeasuringGame.STACK.slideSeconds;
+    for (var i = 0; i < this.cubeIndex; i++) {
+      var cube = this.spawnedCubes[i], p = pos[i];
+      if (!cube || !p) continue;
+      if (cube !== justSpawned) cube.style.transition = slide ? ("left " + secs + "s ease-out, top " + secs + "s ease-out") : "";
+      cube.style.left = p.x + "px";
+      cube.style.top = p.y + "px";
+      cube.style.zIndex = p.row + 1;
+    }
+  };
+
   WeightMeasuringGame.prototype._spawnCube = function (idx) {
-    var targetId = this.targetPoints[idx];
-    var reg = E.getReg(targetId);
+    var reg = E.getReg(this.targetPoints[idx]);
     var cube = document.createElement("div");
     cube.className = "cube";
     var sz = (this.cubePrefab && this.cubePrefab.size) ? this.cubePrefab.size : [218, 218];
-    var w = sz[0], h = sz[1];
     var tgtEl = reg ? reg.el : null;
-    // Place the cube in the SAME coordinate space as its target marker (the marker's parent =
-    // the cube slot inside the right pan) so it lands exactly on the authored pyramid position
-    // AND rides the tilt with the pan.
+    // Spawn in the SAME coordinate space as the target markers (their parent = the cube slot
+    // inside the right pan) so the block rides the tilt with the pan.
     var parent = tgtEl ? tgtEl.parentNode : E.get(this.c.rightBasket);
-    var cx = 0, cy = 0;
-    if (tgtEl) {
-      cx = parseFloat(tgtEl.style.left) + (parseFloat(tgtEl.style.width) || 0) / 2;
-      cy = parseFloat(tgtEl.style.top) + (parseFloat(tgtEl.style.height) || 0) / 2;
-    }
-    cube.style.left = cx + "px"; cube.style.top = cy + "px";
-    cube.style.width = w + "px"; cube.style.height = h + "px";
+    var slot = this._stackPositions(idx + 1)[idx] || { x: 0, y: 0, row: 0 };
+    cube.style.left = slot.x + "px"; cube.style.top = slot.y + "px";
+    cube.style.width = sz[0] + "px"; cube.style.height = sz[1] + "px";
     cube.style.marginLeft = "0"; cube.style.marginTop = "0";
+    cube.style.zIndex = slot.row + 1;
     cube.style.transform = "translate(-50%,-50%) scale(0)";
     var sp = this.c.normalCubeSprite;
     if (sp) { cube.style.backgroundImage = "url('" + sp.path + "')"; }
@@ -237,7 +420,11 @@
     return cube;
   };
   WeightMeasuringGame.prototype.removeCube = async function () {
-    if (this.isCubeMoving) return;
+    if (this.isCubeMoving) {   // queue the tap rather than dropping it (see addCube)
+      this._pendingRemove = Math.min((this._pendingRemove || 0) + 1, this.cubeIndex);
+      this.tut.onMinusClicked();
+      return;
+    }
     this.tut.onMinusClicked();
     if (this.cubeIndex <= 0) return;
     this.isCubeMoving = true;
@@ -253,12 +440,14 @@
     await E.tween(0.2, "InBack", function (t) { cube.style.transform = "translate(-50%,-50%) scale(" + (1 - t) + ")"; });
     cube.remove();
     this.spawnedCubes[removeIndex] = null;
+    this._applyStack(true);          // the row it left re-centres behind it
     this.lastResult = CheckResult.None;
     E.setActive(this.c.checkButton, this.cubeIndex > 0);
     this.updateScaleDynamically();
     this.isCubeMoving = false;
     this.updatePlusMinusState();
     this.enableCheckButton();
+    if (this._pendingRemove > 0) { this._pendingRemove--; this.removeCube(); }
   };
   WeightMeasuringGame.prototype.enableCheckButton = function () {
     if (this.cubeIndex > 0 && !this.isResultChecked) {
@@ -267,6 +456,7 @@
     }
   };
   WeightMeasuringGame.prototype.checkResult = function () {
+    this._pendingAdd = this._pendingRemove = 0;   // nothing queued survives a check
     this.tut.onCheckClicked();
     this.disablePlusMinus();
     if (this.isResultChecked) return;
@@ -333,6 +523,7 @@
     this.updatePlusMinusState();
   };
   WeightMeasuringGame.prototype.resetAllCubes = function () {
+    this._pendingAdd = this._pendingRemove = 0;
     for (var i = 0; i < this.spawnedCubes.length; i++) {
       if (this.spawnedCubes[i]) { this.spawnedCubes[i].remove(); this.spawnedCubes[i] = null; }
     }
@@ -423,7 +614,9 @@
       audio: clipPath || null,
       setText: setFn,
       revealMode: "type",   // preserve the original per-character type-on feel
-      fallbackDuration: Math.max(0.6, message.length * self.minTypingSpeed)
+      fallbackDuration: Math.max(0.6, message.length * self.minTypingSpeed),
+      // bounce the item / the blocks as the narration names them
+      cues: this.game ? this.game.narrationCues() : null
     });
     if (token) {
       var iv = setInterval(function () {
@@ -458,6 +651,10 @@
     await E.wait(1);
     await this.playInstructionAndWait(c.instruction2, c.instruction2Audio_path);
     await E.wait(1);
+    // A card only becomes tappable once its item's art is decoded and ready to paint, so the item
+    // can never arrive after the pan does. In practice the warm-up finished long ago and this
+    // resolves in the same frame; the race is capped so a broken file can't lock the screen.
+    await this.game.itemArtReady();
     E.setInteractable(c.bookButton, !this.bookCompleted);
     E.setInteractable(c.bagButton, !this.bagCompleted);
     if (c.bookButtonCanvas) E.setAlpha(c.bookButtonCanvas, this.bookCompleted ? 0.4 : 1);
@@ -638,8 +835,24 @@
   };
 
   /* ---- final tap activity ---- */
+  // The two answer cards are authored identically (652×402), but on levels 2-4 the left card's
+  // art carries a stray 13px vertical offset, so the two items sat on different lines. Centre
+  // both in their card so the pair reads as a matched set.
+  TP._centreTapArt = function () {
+    var c = this.c;
+    [[c.finalBookButton, c.finalBookHighlightImage], [c.finalBagButton, c.finalBagHighlightImage]]
+      .forEach(function (pair) {
+        var card = E.get(pair[0]), art = E.get(pair[1]);
+        if (!card || !art) return;
+        var cw = parseFloat(card.style.width) || 0, ch = parseFloat(card.style.height) || 0;
+        var aw = parseFloat(art.style.width) || 0, ah = parseFloat(art.style.height) || 0;
+        art.style.left = ((cw - aw) / 2) + "px";
+        art.style.top = ((ch - ah) / 2) + "px";
+      });
+  };
   TP.startTapActivity = async function () {
     var c = this.c;
+    this._centreTapArt();
     // clear any residual completion text so no stray glyph lingers over the tap cards
     if (c.completionText) E.setText(c.completionText, "");
     if (c.bookCompletedText) E.setActive(c.bookCompletedText, false);
@@ -925,7 +1138,10 @@
     CFG.levels.forEach(function (L) {
       var tut = new Tut(L.tut);
       var game = new WeightMeasuringGame(L.game, tut);
-      game.cubePrefab = { size: [170, 186] }; // weight-block size (shrunk ~15% so a full pan of blocks stays inside the bowl, not spilling over the rim)
+      // Weight-block size. Square, so background-size:contain maps the sprite 1:1. Sized so the widest
+      // row of the pyramid (4 blocks, one painted width apart) fits the bowl’s painted opening:
+      // 4 x 0.6836 x 130 = 355px inside 363px.
+      game.cubePrefab = { size: [130, 130] };
       // Use ONE cube art on every level so blocks look identical throughout (levels 2–4 shipped
       // a smaller-drawn 'block_small_*' sprite that made the block appear smaller than level 1).
       game.c.normalCubeSprite = { path: "assets/img/Group_471__1_.webp", nativeSize: [177, 177] };
@@ -938,6 +1154,7 @@
       self.byNode[String(L.tutFid)] = entry;
       self.byNode[String(L.gameFid)] = entry;
     });
+    this._warmAssets();
     // wire button events (SetActive level swaps, OnNextClicked, intro Play/Stop)
     this._wireButtonEvents();
     // ButtonAnimator (intro Lets go)
@@ -945,6 +1162,49 @@
     // start level 1 (its GO active in scene? Level1 root is inactive; ButtonAnimator shows it)
     // Level roots are inactive at boot; they start when made active.
     this._watchActivation();
+  };
+
+  // Warm every sprite and VO clip a later screen will need, so nothing arrives a beat after
+  // the screen that needs it. Two separate cases used to show this:
+  //   • the pan item — its sprite is only assigned when the learner picks a card, so on a
+  //     cold cache the bowl sat empty for as long as that download took;
+  //   • a whole level — a hidden level's background/scale/button art is never fetched until
+  //     the level is switched on, so the new level assembled itself piece by piece.
+  // Ordered by play order (level 1's art first) so the queue matches what is needed soonest.
+  LevelManager.prototype._warmAssets = function () {
+    var images = [], audio = [], seen = {};
+    function push(v) {
+      if (!v || seen[v]) return;
+      seen[v] = 1;
+      if (/\.(webp|png|jpe?g|gif)$/i.test(v)) images.push(v);
+      else if (/\.(ogg|mp3|wav|m4a)$/i.test(v)) audio.push(v);
+    }
+    function walk(v, depth) {
+      if (!v || depth > 6) return;
+      if (typeof v === "string") return push(v);
+      if (typeof v !== "object") return;
+      Object.keys(v).forEach(function (k) { walk(v[k], depth + 1); });
+    }
+    // The items the learner can pick on the FIRST level are the ones that used to arrive late, so
+    // they are fetched and decoded straight away rather than waiting for an idle moment.
+    var first = this.levels[0];
+    var critical = first ? [first.cfg.game.bookSprite, first.cfg.game.bagSprite]
+      .map(function (s) { return s && s.path; }).filter(Boolean) : [];
+    critical.forEach(push);
+    E.decodeImages(critical);
+
+    this.levels.forEach(function (entry) {
+      var root = E.get(entry.node);   // sprites the engine already applied to this level's nodes
+      if (root) Array.prototype.forEach.call(root.querySelectorAll("[data-sprite]"), function (el) { push(el.dataset.sprite); });
+      walk(entry.cfg, 0);             // plus the sprites/clips that level swaps in at runtime
+    });
+    walk(CFG, 0);                     // intro + anything not owned by a level
+    // Everything else starts once the browser is idle, never during boot: the intro screen's own
+    // art must win the connection. The learner still has the intro and two spoken lines to sit
+    // through, and each level's cards wait on their own art being decoded (itemArtReady).
+    function warm() { E.preloadImages(images); E.preloadAudioMeta(audio); }
+    if (global.requestIdleCallback) global.requestIdleCallback(warm, { timeout: 1500 });
+    else setTimeout(warm, 1200);
   };
 
   LevelManager.prototype._ensureStarted = function (entry) {
@@ -974,6 +1234,9 @@
     var offEntry = this.byNode[offNode], onEntry = this.byNode[onNode];
     var idx = this.levels.indexOf(offEntry);
     if (typeof window.SendLevelComplete === "function") try { window.SendLevelComplete(idx, this.levels.length); } catch (e) { }
+    // leaving a screen: nothing from the old one should still be sounding
+    if (global.SFX && global.SFX.stop) global.SFX.stop();
+    if (offEntry && offEntry.tut) offEntry.tut.stopCurrentInstruction();
     E.setActive(offNode, false);
     E.setActive(onNode, true);
     if (onEntry) this._ensureStarted(onEntry);

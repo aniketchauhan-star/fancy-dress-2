@@ -1,0 +1,116 @@
+<div id="godPanel">
+  <div id="godPanelHeader">
+    <span class="godTitle">⚡ God Mode — Balancing Act</span>
+    <button id="godMinBtn" title="Minimize">–</button>
+  </div>
+  <div id="godPanelBody">
+
+    <section class="godSec">
+      <h4>Screen Flow</h4>
+      <div class="godBtns">
+        <button data-god-action="screen:intro">Intro</button>
+        <button data-god-action="screen:selection">Selection</button>
+        <button data-god-action="screen:gameplay">Gameplay</button>
+        <button data-god-action="screen:feedback">Wrong Feedback</button>
+        <button data-god-action="screen:correct">Correct</button>
+        <button data-god-action="screen:finaltap">Final Tap</button>
+        <button data-god-action="screen:compare">Compare</button>
+        <button data-god-action="screen:gameover">Game Over</button>
+      </div>
+    </section>
+
+    <section class="godSec">
+      <h4>Level Testing</h4>
+      <div class="godBtns">
+        <button data-god-action="level:prev">◀ Prev</button>
+        <button data-god-action="level:next">Next ▶</button>
+        <button data-god-action="level:restart">Restart</button>
+      </div>
+      <div class="godBtns">
+        <button data-god-action="cube:add">+ Cube</button>
+        <button data-god-action="cube:remove">− Cube</button>
+        <button data-god-action="cube:solve">Auto-Solve</button>
+        <button data-god-action="cube:check">Check</button>
+      </div>
+    </section>
+
+    <section class="godSec">
+      <h4>Item</h4>
+      <div class="godBtns">
+        <button data-god-action="item:book">Select Book</button>
+        <button data-god-action="item:bag">Select Bag</button>
+      </div>
+    </section>
+
+    <section class="godSec">
+      <h4>Animation Speed</h4>
+      <div class="godBtns" id="godSpeedBtns">
+        <button data-god-action="speed:0">Pause</button>
+        <button data-god-action="speed:0.5">0.5×</button>
+        <button data-god-action="speed:1" class="on">1×</button>
+        <button data-god-action="speed:1.5">1.5×</button>
+        <button data-god-action="speed:2">2×</button>
+      </div>
+    </section>
+
+    <section class="godSec">
+      <h4>Visual Debug</h4>
+      <div class="godChks">
+        <label><input type="checkbox" data-god-toggle="godShowBounds"> Show Bounds</label>
+        <label><input type="checkbox" data-god-toggle="godShowSafeArea"> Safe Area</label>
+        <label><input type="checkbox" data-god-toggle="godShowSlots"> Mark Cube Slots</label>
+        <label><input type="checkbox" data-god-toggle="godShowTextBoxes"> Text Boxes</label>
+      </div>
+    </section>
+
+    <section class="godSec">
+      <h4>QA Test Mode</h4>
+      <div class="godBtns">
+        <button data-god-action="qa:smoke">Smoke</button>
+        <button data-god-action="qa:level">Level Data</button>
+        <button data-god-action="qa:flow">Flow</button>
+        <button data-god-action="qa:interaction">Interaction</button>
+        <button data-god-action="qa:balance">Balance</button>
+      </div>
+      <div class="godBtns">
+        <button data-god-action="qa:all" class="godPrimary">Run All</button>
+        <button data-god-action="qa:copy">Copy Report</button>
+      </div>
+      <div id="qaOutput"></div>
+    </section>
+
+    <section class="godSec">
+      <h4>Voice-Over Sync (VO)</h4>
+      <div class="godBtns">
+        <button data-god-action="vo:preview" class="godPrimary">▶ Preview Transition VO + Text</button>
+        <button data-god-action="vo:instruction">▶ Preview Next-Level Instruction</button>
+      </div>
+      <div class="godBtns">
+        <button data-god-action="vo:pause">⏸ Pause</button>
+        <button data-god-action="vo:resume">▶ Resume</button>
+        <button data-god-action="vo:restart">↻ Restart</button>
+        <button data-god-action="vo:skip">⏭ Skip Line</button>
+        <button data-god-action="vo:mute">🔊 Mute VO Preview</button>
+      </div>
+      <div id="voOutput"></div>
+    </section>
+
+    <section class="godSec">
+      <h4>UI / UX Review</h4>
+      <div class="godBtns">
+        <button data-god-action="ux:start" class="godPrimary">Start Review</button>
+        <button data-god-action="ux:kid">Kid Check</button>
+        <button data-god-action="ux:clear">Clear</button>
+      </div>
+    </section>
+
+    <section class="godSec">
+      <h4>Tools</h4>
+      <div class="godBtns">
+        <button data-god-action="tool:editor">Live Layout Editor</button>
+      </div>
+      <p class="godHint">Shift+G toggles · shortcuts: N/P levels · R restart · A/D +/− cube · Space check · 1-5 speed · B bounds · Q/L QA · V UX</p>
+    </section>
+
+  </div>
+</div>

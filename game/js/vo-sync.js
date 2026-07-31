@@ -63,6 +63,18 @@
     this.audioSrc = (typeof this.opts.audio === "string") ? this.opts.audio : null;
     this.audioEl = (this.opts.audio && typeof this.opts.audio !== "string") ? this.opts.audio : null;
 
+    // Word cues: [{ phrase, fire }] — fire() runs as the narration finishes saying `phrase`.
+    // Each occurrence in the line gets its own trigger, resolved to a character position, so a
+    // cue lands with the spoken word whether the clock comes from the audio or the fallback.
+    this.cues = [];
+    (this.opts.cues || []).forEach(function (cue) {
+      if (!cue || !cue.phrase || typeof cue.fire !== "function") return;
+      var hay = this.text.toLowerCase(), needle = String(cue.phrase).toLowerCase();
+      for (var at = hay.indexOf(needle); at !== -1; at = hay.indexOf(needle, at + needle.length)) {
+        this.cues.push({ at: at + needle.length, fire: cue.fire, fired: false });
+      }
+    }, this);
+
     this.state = "idle";       // idle | playing | paused | done | cancelled
     this.duration = this.fallbackDuration;
     this.usingAudio = false;   // real audible clip driving the clock?
@@ -117,8 +129,18 @@
     return clamp(t / d, 0, 1);
   };
 
+  S._fireCues = function (frac) {
+    if (!this.cues.length) return;
+    var shown = frac * this.text.length;
+    for (var i = 0; i < this.cues.length; i++) {
+      var c = this.cues[i];
+      if (!c.fired && shown >= c.at) { c.fired = true; try { c.fire(); } catch (e) { } }
+    }
+  };
+
   S._applyReveal = function (frac) {
     this.revealProgress = frac;
+    this._fireCues(frac);
     if (this.wordTimings && this.wordTimings.length) {
       var count = Math.round(frac * this.wordTimings.length);
       this._write(this.wordTimings.slice(0, count).map(function (w) { return w.text; }).join(" "));

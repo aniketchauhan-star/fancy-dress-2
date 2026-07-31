@@ -1,0 +1,171 @@
+/* god-mode.css — self-contained styling for the Balancing Act God Mode suite.
+   All panels are position:fixed at very high z-index, OUTSIDE the scaled #stage,
+   so they render crisp at native size regardless of the game's zoom. */
+
+:root {
+  --godAccent:  #3DF5C4;
+  --godAccent2: #7C6BFF;
+  --godPink:    #FF6FD8;
+  --godInk:     #EAF6FF;
+  --godMuted:   rgba(190,215,230,.62);
+  --godGlass:   rgba(18,24,34,.92);
+  --godGlassHi: rgba(40,52,72,.6);
+  --godLine:    rgba(120,170,200,.16);
+  --godRed:     #ff6b6b;
+  --godGreen:   #3bceac;
+  --godAmber:   #ffb648;
+}
+
+#godModeRoot, #godBadge, #uxPanel, #gmAnimBar, #gmEditPanel, #gmSelBox { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+
+/* ---------------- badge ---------------- */
+#godBadge {
+  position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
+  z-index: 100002; padding: 6px 14px; border-radius: 20px;
+  background: linear-gradient(90deg, var(--godAccent), var(--godAccent2));
+  color: #06121a; font-weight: 800; letter-spacing: .05em; font-size: 13px;
+  box-shadow: 0 4px 20px rgba(61,245,196,.4); cursor: pointer; user-select: none;
+  animation: godBadgePulse 1.6s ease-in-out infinite;
+}
+@keyframes godBadgePulse { 0%,100%{ box-shadow:0 4px 20px rgba(61,245,196,.35);} 50%{ box-shadow:0 4px 30px rgba(124,107,255,.6);} }
+
+/* ---------------- main panel ---------------- */
+#godPanel {
+  position: fixed; top: 14px; right: 14px; width: 320px; max-height: 92vh;
+  z-index: 100000; display: flex; flex-direction: column;
+  background: var(--godGlass); color: var(--godInk);
+  border: 1px solid var(--godLine); border-radius: 14px; overflow: hidden;
+  box-shadow: 0 18px 60px rgba(0,0,0,.55); backdrop-filter: blur(14px) saturate(1.3);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+}
+#godPanelHeader {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px; cursor: grab; user-select: none;
+  background: linear-gradient(90deg, rgba(61,245,196,.18), rgba(124,107,255,.18));
+  border-bottom: 1px solid var(--godLine);
+}
+#godPanelHeader:active { cursor: grabbing; }
+.godTitle { font-weight: 800; font-size: 13px; }
+#godMinBtn {
+  width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--godLine);
+  background: var(--godGlassHi); color: var(--godInk); cursor: pointer; font-size: 16px; line-height: 1;
+}
+#godPanelBody { overflow-y: auto; padding: 4px 12px 12px; }
+#godPanel.godMin #godPanelBody { display: none; }
+
+.godSec { padding: 8px 0; border-bottom: 1px solid var(--godLine); }
+.godSec:last-child { border-bottom: none; }
+.godSec h4 { margin: 4px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--godMuted); }
+.godBtns { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+.godChks { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; }
+.godChks label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+.godHint { font-size: 10.5px; color: var(--godMuted); line-height: 1.5; margin-top: 6px; }
+
+#godPanel button, .gmEditBtn, .gmAnimBtn, .uxClose {
+  border: 1px solid var(--godLine); background: var(--godGlassHi); color: var(--godInk);
+  padding: 6px 9px; border-radius: 8px; font-size: 12px; cursor: pointer; transition: .12s;
+}
+#godPanel button:hover, .gmEditBtn:hover, .gmAnimBtn:hover { background: rgba(61,245,196,.22); border-color: var(--godAccent); }
+#godPanel button.on { background: linear-gradient(90deg, var(--godAccent), var(--godAccent2)); color: #06121a; font-weight: 700; }
+.godPrimary { background: linear-gradient(90deg, rgba(61,245,196,.35), rgba(124,107,255,.35)) !important; font-weight: 700; }
+
+/* qa output */
+#qaOutput { margin-top: 6px; max-height: 190px; overflow-y: auto; font: 11.5px/1.5 ui-monospace, Menlo, Consolas, monospace; background: rgba(0,0,0,.28); border-radius: 8px; padding: 6px 8px; }
+.qa-line { white-space: pre-wrap; }
+.qa-header { color: var(--godAccent); font-weight: 700; margin-top: 4px; }
+.qa-pass { color: var(--godGreen); }
+.qa-fail { color: var(--godRed); font-weight: 600; }
+.qa-warn { color: var(--godAmber); }
+.qa-info { color: var(--godMuted); }
+
+/* VO sync debugger readout */
+#voOutput { margin-top: 6px; font: 11.5px/1.5 ui-monospace, Menlo, Consolas, monospace; background: rgba(0,0,0,.28); border-radius: 8px; padding: 6px 8px; min-height: 8px; }
+#voOutput:empty { display: none; }
+.vo-row { display: flex; justify-content: space-between; gap: 10px; }
+.vo-row span { color: var(--godMuted); }
+.vo-row b { color: #e8ecff; font-weight: 600; }
+.vo-ok b, .vo-ok { color: var(--godGreen); }
+.vo-bad b, .vo-bad { color: var(--godRed); }
+.vo-verdict { font-weight: 700; margin-bottom: 4px; }
+
+/* scrollbars */
+#godPanelBody::-webkit-scrollbar, #qaOutput::-webkit-scrollbar, #uxOutput::-webkit-scrollbar, #gmAnimBar::-webkit-scrollbar { width: 8px; }
+#godPanelBody::-webkit-scrollbar-thumb, #qaOutput::-webkit-scrollbar-thumb, #uxOutput::-webkit-scrollbar-thumb { background: rgba(124,107,255,.5); border-radius: 8px; }
+
+/* ---------------- UX panel ---------------- */
+#uxPanel {
+  position: fixed; bottom: 14px; left: 14px; width: 340px; max-height: 60vh; z-index: 100001;
+  display: flex; flex-direction: column; background: var(--godGlass); color: var(--godInk);
+  border: 1px solid var(--godLine); border-radius: 14px; overflow: hidden;
+  box-shadow: 0 18px 60px rgba(0,0,0,.55); backdrop-filter: blur(14px);
+}
+.uxHeader { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; font-weight: 800; font-size: 12px; background: linear-gradient(90deg, rgba(255,111,216,.2), rgba(124,107,255,.2)); border-bottom: 1px solid var(--godLine); }
+.uxClose { width: 22px; height: 22px; padding: 0; }
+#uxOutput { overflow-y: auto; padding: 8px 12px; font: 12px/1.55 system-ui; }
+.ux-line { margin: 2px 0; }
+.ux-header { color: var(--godPink); font-weight: 700; margin-top: 6px; }
+.ux-issue { color: var(--godRed); }
+.ux-warn { color: var(--godAmber); }
+.ux-good { color: var(--godGreen); }
+.ux-info { color: var(--godMuted); }
+
+/* on-stage highlights */
+.uxIssue { outline: 3px solid var(--godRed) !important; outline-offset: 1px; box-shadow: 0 0 14px rgba(255,107,107,.7) !important; }
+.uxWarning { outline: 3px solid var(--godAmber) !important; outline-offset: 1px; }
+.uxGood { outline: 2px solid var(--godGreen) !important; outline-offset: 1px; }
+
+/* ---------------- Live Layout Editor ---------------- */
+#gmEditPanel {
+  position: fixed; top: 14px; left: 14px; width: 300px; max-height: 92vh; z-index: 100001;
+  display: flex; flex-direction: column; background: var(--godGlass); color: var(--godInk);
+  border: 1px solid var(--godLine); border-radius: 14px; overflow: hidden; box-shadow: 0 18px 60px rgba(0,0,0,.55);
+  backdrop-filter: blur(14px);
+}
+.gmEditHead { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; font-weight: 800; font-size: 12px; background: linear-gradient(90deg, rgba(61,245,196,.2), rgba(124,107,255,.2)); border-bottom: 1px solid var(--godLine); }
+.gmEditClose { width: 22px; height: 22px; border: 1px solid var(--godLine); background: var(--godGlassHi); color: var(--godInk); border-radius: 6px; cursor: pointer; }
+.gmEditBody { padding: 10px 12px; overflow-y: auto; }
+.gmEditSelect, .gmAnimSelect { width: 100%; padding: 6px; border-radius: 8px; background: var(--godGlassHi); color: var(--godInk); border: 1px solid var(--godLine); font-size: 12px; margin-bottom: 8px; }
+.gmEditRow2 { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.gmEditChk { display: flex; align-items: center; gap: 4px; font-size: 11.5px; }
+.gmEditFields { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 0; }
+.gmEditField { display: flex; flex-direction: column; font-size: 10.5px; color: var(--godMuted); }
+.gmEditField input { padding: 5px 6px; border-radius: 6px; border: 1px solid var(--godLine); background: rgba(0,0,0,.25); color: var(--godInk); font-size: 12px; }
+.gmEditText { width: 100%; border-radius: 8px; border: 1px solid var(--godLine); background: rgba(0,0,0,.25); color: var(--godInk); padding: 6px; font-size: 12px; resize: vertical; }
+.gmEditWarn { border-color: var(--godRed) !important; color: #ffd0d0 !important; }
+.gmEditMsg { font-size: 11px; color: var(--godAccent); min-height: 14px; margin-top: 6px; }
+
+/* selection box */
+#gmSelBox { position: fixed; z-index: 100003; border: 2px solid var(--godAccent); pointer-events: none; }
+#gmSelBox .gmSelH { position: absolute; width: 11px; height: 11px; background: var(--godAccent); border: 1px solid #06121a; border-radius: 2px; pointer-events: auto; }
+#gmSelBox .gmSelLabel { position: absolute; top: -22px; left: 0; background: var(--godAccent); color: #06121a; font: 700 11px system-ui; padding: 1px 6px; border-radius: 5px; white-space: nowrap; }
+.gmSelH-nw{left:-6px;top:-6px;cursor:nwse-resize}.gmSelH-n{left:calc(50% - 5px);top:-6px;cursor:ns-resize}.gmSelH-ne{right:-6px;top:-6px;cursor:nesw-resize}
+.gmSelH-e{right:-6px;top:calc(50% - 5px);cursor:ew-resize}.gmSelH-se{right:-6px;bottom:-6px;cursor:nwse-resize}.gmSelH-s{left:calc(50% - 5px);bottom:-6px;cursor:ns-resize}
+.gmSelH-sw{left:-6px;bottom:-6px;cursor:nesw-resize}.gmSelH-w{left:-6px;top:calc(50% - 5px);cursor:ew-resize}
+
+/* ---------------- Animation Ideas bar ---------------- */
+#gmAnimBar {
+  position: fixed; bottom: 14px; right: 14px; width: 320px; max-height: 60vh; z-index: 100001; overflow-y: auto;
+  background: var(--godGlass); color: var(--godInk); border: 1px solid var(--godLine); border-radius: 14px;
+  padding: 10px 12px; box-shadow: 0 18px 60px rgba(0,0,0,.55); backdrop-filter: blur(14px); font-size: 12px;
+}
+.gmAnimRow { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; align-items: center; }
+.gmAnimHead { font-size: 12px; }
+.gmAnimChips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.gmAnimChip { border: 1px solid var(--godLine); background: var(--godGlassHi); color: var(--godInk); padding: 5px 8px; border-radius: 14px; font-size: 11.5px; cursor: pointer; }
+.gmAnimChip:hover { border-color: var(--godAccent); }
+.gmAnimChip.previewing { background: rgba(61,245,196,.25); border-color: var(--godAccent); }
+.gmAnimChip.applied { background: linear-gradient(90deg, var(--godAccent), var(--godAccent2)); color: #06121a; font-weight: 700; }
+.gmAnimCode { margin-top: 8px; background: rgba(0,0,0,.35); border-radius: 8px; padding: 8px; }
+.gmAnimCode pre { white-space: pre-wrap; font: 11px/1.5 ui-monospace, Consolas, monospace; color: #cfe; max-height: 160px; overflow: auto; }
+.gmAnimToast { color: var(--godAccent); font-size: 11px; min-height: 14px; }
+
+/* ---------------- visual debug overlays ---------------- */
+body.godShowBounds #stage .unode { outline: 1px solid rgba(61,245,196,.45); }
+body.godShowTextBoxes #stage .utext { outline: 1px dashed var(--godPink); outline-offset: -1px; }
+body.godShowSlots #stage .cube,
+body.godShowSlots #stage [data-name^="Ball"] { outline: 2px solid var(--godAccent2); }
+body.godShowSafeArea #stage::after {
+  content: ""; position: absolute; left: 5%; top: 5%; right: 5%; bottom: 5%;
+  border: 2px dashed rgba(124,107,255,.8); pointer-events: none; z-index: 99998;
+}
+body.godPauseAnimations #stage *, body.godPauseAnimations .hint-hand, body.godPauseAnimations .confetti-piece { animation-play-state: paused !important; }
