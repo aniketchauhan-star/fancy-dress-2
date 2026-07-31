@@ -113,21 +113,25 @@ function makeMedia(page) {
       try { if (media.ended) media.currentTime = 0; } catch (_) {}
       const p = media.play(); if (p && p.catch) p.catch(function () {});
     });
-    // When THIS page's video FULLY finishes, blink + gold-glow the forward arrow
-    // for 2s as a "turn the page" cue. Fires ONCE per page arrival (armBlink) so a
-    // short clip won't blink repeatedly. Skipped on the last page.
+    // When THIS page's video FULLY finishes: mark the page WATCHED (which releases
+    // the NEXT gate — permanently, so a revisit never re-locks it) and pulse the
+    // forward arrow with a gold glow as a "turn the page" cue. The pulse fires ONCE
+    // per page arrival (armBlink) so a short clip won't pulse repeatedly.
     media.addEventListener("ended", function () {
+      const isCurrent = leaves[flipped] && leaves[flipped].contains(media);
+      if (!isCurrent) return;                    // only the current page
+      // Release the gate FIRST and unconditionally — this runs even when the guards
+      // below bail out, so a page can never be left permanently un-turnable (the
+      // media watchdog and the error path both come through here too).
+      watched.add(flipped);
+      updateProgress();                          // NEXT appears the instant it's earned
       if (!opened || !ready || lbdFullscreen || flipped >= totalPages - 1) return;
-      if (!leaves[flipped] || !leaves[flipped].contains(media)) return;   // only the current page
       // PAGE-FLIP TUTORIAL: 5s after THIS page's video finishes, start the hand /
       // ghost-flip nudge (see scheduleHintAfterVideo in the PAGE-TURN HINT section).
       if (typeof scheduleHintAfterVideo === "function") scheduleHintAfterVideo();
-      if (!armBlink || !cornerNext) return;      // already blinked for this visit
-      armBlink = false;                          // one blink per page arrival
-      cornerNext.classList.remove("blink1");
-      void cornerNext.offsetWidth;               // restart the animation cleanly
-      cornerNext.classList.add("blink1");
-      setTimeout(function () { cornerNext.classList.remove("blink1"); }, 2050);
+      if (!armBlink) return;                     // already pulsed for this visit
+      armBlink = false;                          // one pulse per page arrival
+      pulseNext();
     });
     // HARDENING — a media error must never strand a media-gated cue:
     //  1) if the preloader's blob: URL fails, revert ONCE to the original file
@@ -235,6 +239,9 @@ const lbdStage = document.getElementById("lbdStage");
 const lbdFrame = document.getElementById("lbdFrame");
 let lbdFullscreen = false;   // is the overlay expanded to full screen right now?
 let lbdStarted    = false;   // has the child tapped Start at least once this visit?
+let lbdCompleted  = false;   // has the game been FINISHED (or skipped) at least once?
+                             // STICKY for the whole read: it's what releases NEXT on the
+                             // game page, and coming back must never re-lock it.
 let lbdWasOn      = false;   // was the overlay showing on the previous refresh?
 let lbdExiting    = false;   // guard so "complete" only advances once
 
@@ -324,6 +331,7 @@ function updateLbdOverlay() {
 function exitLbd() {
   if (lbdExiting) return;
   lbdExiting = true;
+  lbdCompleted = true;                    // releases NEXT on the game page, for good
   setLbdFullscreen(false);                // shrink the game back into the page
   setTimeout(function () {
     lbdExiting = false;
@@ -531,12 +539,38 @@ function refreshMedia() {
    SAME guards. Do not add a second flip path.
    ========================================================================== */
 
+/* Pages whose video has already run to the end — or was released by the media
+   watchdog / error path. FIRST VISIT ONLY: a page in this set never gates NEXT
+   again, so turning back shows BOTH arrows immediately and nobody is made to sit
+   through the same clip twice. */
+const watched = new Set();
+
 /* CONTENT GATE — a page may HOLD the reader until its content releases them.
-   Today the only gate is the embedded game while it owns the whole screen: the
-   game posts "lbd-complete", which shrinks the overlay and then auto-advances.
+   Three gates, all of them FIRST-VISIT ONLY:
+     • the game while it owns the whole screen (nothing else may run);
+     • the game PAGE, until the game has been completed (or skipped) — the reader
+       may not read past a game they haven't played;
+     • a story page's video, until it has finished once (see `watched`).
    NEXT is both blocked AND hidden while this is true. */
 function nextLocked() {
-  return lbdFullscreen;
+  if (lbdFullscreen) return true;                       // the game owns the screen
+  if (LBD_INDEX >= 0 && flipped === LBD_INDEX) return !lbdCompleted;
+  if (watched.has(flipped)) return false;               // been here, watched it → free
+  const v = pageVideo();
+  return !!(v && !v.ended);                             // still playing → hold
+}
+
+/* One-shot GOLD GLOW PULSE on the forward arrow, played the moment the video
+   ends and NEXT appears: a couple of pulses to catch the eye, then the arrow
+   settles back to its normal look. Purely a cue — the class removes itself. */
+let _glowTimer = null;
+function pulseNext() {
+  if (!cornerNext || cornerNext.disabled) return;       // never pulse a hidden arrow
+  cornerNext.classList.remove("glow-pulse");
+  void cornerNext.offsetWidth;                          // restart the animation cleanly
+  cornerNext.classList.add("glow-pulse");
+  clearTimeout(_glowTimer);
+  _glowTimer = setTimeout(function () { cornerNext.classList.remove("glow-pulse"); }, 2450);
 }
 
 /* Is there anywhere to go in `dir` (1 = forward, -1 = back)? This is what the
@@ -739,7 +773,7 @@ function closeBookToCover(afterReset) {
   clearTimeout(_flipTimer);                    // abandon a page turn still in flight
   animating = false;
   hideFlipHint(); clearTimeout(idleHintTimer); clearTimeout(nudgeHideTimer);
-  if (cornerNext) cornerNext.classList.remove("blink", "blink1");
+  if (cornerNext) cornerNext.classList.remove("blink", "glow-pulse");
   var v = currentVideo(); if (v) { try { v.pause(); } catch (_) {} }
   if (lbdFullscreen) setLbdFullscreen(false);  // never close out from under a fullscreen overlay
   updateLbdOverlay();                          // Home tapped ON the game page → hide + reset the game overlay

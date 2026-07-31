@@ -132,20 +132,11 @@
 </div>
 
 <!-- ============================================================================
-     NAV CONTROL SET — BACK · NEXT · HOME. One set: same box, same weight,
+     NAV CONTROL SET — BACK · NEXT. One set: same box, same weight,
      mirrored placement (see the NAV CONTROL SET block in styles.css).
      Visibility is owned entirely by updateProgress() in script.js, which sets
      BOTH .is-hidden and [disabled] — a dead control is HIDDEN, never greyed.
      ============================================================================ -->
-
-<!-- HOME — top-right, shown only while reading (hidden on the cover and on THE
-     END page, which has its own Replay). Closes the book (the exact reverse of
-     the opening swing) back to the front cover. Never gated. -->
-<button class="home-btn" id="homeBtn" type="button" aria-label="Back to the cover">
-  <svg viewBox="0 0 24 24" aria-hidden="true">
-    <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" fill="currentColor"/>
-  </svg>
-</button>
 
 <!-- Flip arrows OUTSIDE the book, fixed at the viewport's bottom corners
      (bottom-left = back, bottom-right = forward). BACK is the SAME svg path as
