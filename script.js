@@ -282,10 +282,29 @@ function resetLbd() {
   lbdFrame.dataset.loaded = "";
   setTimeout(ensureLbdLoaded, 60);
 }
+/* The book's TARGET on-screen rectangle — computed from --book-scale, NOT read
+   off .flip-scale with getBoundingClientRect().
+   ⚠ WHY: .flip-scale now EASES between sizes (see the animated re-fit in
+   styles.css), so mid-transition its live rect is a half-way value. Anything
+   parked from that rect (the game overlay, the page-turn hint) would land in the
+   wrong place and then sit there, because nothing re-reads it once the ease ends.
+   .flip-scale is absolutely centred in .stage, which is never transformed — so
+   its final box is exactly 1280×720 × scale, centred on .stage's centre. */
+function bookRect() {
+  const host = flipScaleEl.parentElement.getBoundingClientRect();   // .stage — untransformed
+  const s = parseFloat(getComputedStyle(flipScaleEl).getPropertyValue("--book-scale")) || 0.5;
+  const w = 1280 * s, h = 720 * s;
+  return {
+    left: host.left + host.width  / 2 - w / 2,
+    top:  host.top  + host.height / 2 - h / 2,
+    width: w, height: h,
+    right: host.left + host.width / 2 + w / 2,
+  };
+}
 // Park the overlay exactly over the on-screen page rectangle (pre-LBD look).
 function positionLbdStage() {
   if (!lbdStage) return;
-  const r = flipScaleEl.getBoundingClientRect();   // the scaled 1280×720 page area
+  const r = bookRect();                            // the scaled 1280×720 page area
   lbdStage.style.left   = r.left   + "px";
   lbdStage.style.top    = r.top    + "px";
   lbdStage.style.width  = r.width  + "px";
@@ -662,25 +681,20 @@ function updateProgress() {
   setNavVisible(cornerNext, navAvailable(1));
 }
 
-/* ---- Fullscreen: go FULLSCREEN when the book opens (the Play tap is the user
-   gesture the Fullscreen API requires) and LEAVE fullscreen when back at the
-   cover (Home / Replay). Applies on every screen; silently no-ops where the
-   browser blocks it (e.g. iPhone Safari can't fullscreen arbitrary elements). */
-function enterFullscreen() {
-  try {
-    if (document.fullscreenElement || document.webkitFullscreenElement) return;
-    var el = document.documentElement;
-    var req = el.requestFullscreen || el.webkitRequestFullscreen || el.webkitRequestFullScreen || el.msRequestFullscreen;
-    if (req) { var p = req.call(el); if (p && p.catch) p.catch(function () {}); }
-  } catch (_) {}
-}
-function exitFullscreen() {
-  try {
-    if (!(document.fullscreenElement || document.webkitFullscreenElement)) return;
-    var ex = document.exitFullscreen || document.webkitExitFullscreen || document.webkitCancelFullScreen || document.msExitFullscreen;
-    if (ex) { var p = ex.call(document); if (p && p.catch) p.catch(function () {}); }
-  } catch (_) {}
-}
+/* ---- ⚠ NO BROWSER FULLSCREEN ON OPEN — DELIBERATE, DO NOT RE-ADD -----------
+   Play used to call requestFullscreen(). That single call was the whole reason
+   the open felt broken, and it caused THREE separate defects at once:
+     1. The viewport resized the instant the cover started swinging, so fitScale()
+        re-scaled the book mid-animation — the book visibly JUMPED size.
+     2. The body's fixed-attachment gradient background repainted against the new
+        viewport box → a visible FLICKER behind the book.
+     3. Every browser overlays its own "Press Esc to exit full screen" /
+        "Swipe down to exit" TOAST on entry. That is browser chrome: no web page
+        can style, move or suppress it, so it always landed on top of the story.
+   None of the three is fixable while the API is being called, so the call is
+   gone. The reader can still go fullscreen themselves (F11 / the browser menu),
+   and because the re-fit below is animated, that now glides too.
+   ------------------------------------------------------------------------- */
 
 /* ---- Open the 3D cover, then hand off to the page-turning book ----------
    Shared by the first open (openBook) AND Replay (replayBook), so the dramatic
@@ -724,7 +738,19 @@ function openBook() {
   if (opened) return;
   if (!preloadDone) return;   // gate EVERY start path (tap, keyboard, programmatic) until 100% preloaded
   opened = true;
-  enterFullscreen();          // Play tap is a user gesture → allowed to go fullscreen
+  // Land the book on its exact final size BEFORE the cover starts to swing, so
+  // nothing can re-scale mid-open. If the viewport drifted while the reader sat on
+  // the cover (mobile URL bar, a window resize), this is the one correction, and
+  // dropping .scale-ready for a single frame makes it land INSTANTLY — on the
+  // still-closed cover, where it's invisible — instead of gliding into the first
+  // second of the swing. Everything here stays SYNCHRONOUS inside the click
+  // handler: runOpenSequence() unlocks audio and starts the page-1 video, which
+  // browsers only allow while the user gesture is still on the stack, so this must
+  // never be deferred behind a timer / rAF.
+  document.body.classList.remove("scale-ready");
+  fitScale();
+  void document.body.offsetWidth;               // commit the new scale with no transition
+  document.body.classList.add("scale-ready");
   runOpenSequence();
 }
 
@@ -732,7 +758,8 @@ function openBook() {
    button, exactly like a fresh load (so tapping Play reads from the top). Shared
    by Replay and Home (called once the closing swing has finished). --------- */
 function resetToStart() {
-  exitFullscreen();           // back at the cover → leave fullscreen
+  // (No exitFullscreen() here on purpose — we never PUT the reader in fullscreen,
+  //  so if they chose it themselves via F11 we must not yank them back out.)
   ready = false; opened = false; flipped = 0;
   renderLeaves();
   leaves.forEach(function (leaf) {
@@ -954,6 +981,9 @@ window.addEventListener("keydown", function (e) {
 });
 
 // Keep the canvas scaled to fit on resize / rotate.
+// The book GLIDES to its new size (the eased transform on .flip-scale) instead of
+// snapping, so a rotation, a window resize, the mobile URL bar retracting, or the
+// reader hitting F11 all read as one smooth motion rather than a jump-cut.
 let _resizeSettle = null;
 function onViewportChange() {
   // Suppress the page-turn transitions while the viewport is actively changing, so
@@ -961,11 +991,18 @@ function onViewportChange() {
   // flipping (the leaves re-render during the scale change). Restored once settled.
   document.body.classList.add("is-resizing");
   clearTimeout(_resizeSettle);
-  _resizeSettle = setTimeout(function () { document.body.classList.remove("is-resizing"); }, 220);
+  _resizeSettle = setTimeout(function () { document.body.classList.remove("is-resizing"); }, 560);
   fitScale();
   // Re-park the LBD overlay over the (re-scaled) page — unless it's fullscreen,
-  // where it already fills the viewport via CSS.
-  if (lbdStage && lbdStage.classList.contains("visible") && !lbdFullscreen) positionLbdStage();
+  // where it already fills the viewport via CSS. .lbd-anim gives the overlay the
+  // same easing as the book, so the two move together instead of the game snapping
+  // to its new box while the book is still travelling.
+  if (lbdStage && lbdStage.classList.contains("visible") && !lbdFullscreen) {
+    lbdStage.classList.add("lbd-anim");
+    positionLbdStage();                       // bookRect() = the TARGET box, not the in-flight one
+    clearTimeout(lbdAnimTimer);
+    lbdAnimTimer = setTimeout(function () { lbdStage.classList.remove("lbd-anim"); }, 460);
+  }
 }
 window.addEventListener("resize", onViewportChange);
 window.addEventListener("orientationchange", onViewportChange);
@@ -1177,7 +1214,7 @@ function canShowHint() {
 }
 function positionFlipHint() {
   if (!flipScaleEl) return;
-  const r = flipScaleEl.getBoundingClientRect();            // the book's on-screen rect
+  const r = bookRect();                                    // the book's on-screen rect
   const w = flipHint.offsetWidth || 80, h = flipHint.offsetHeight || 80;
   // Park the hand against the book's RIGHT edge, vertically centred — the side the
   // ghost flip lifts. The swipe animation moves it right→left from here.
@@ -1411,3 +1448,8 @@ const preloadBlobs = {};                 // url -> blob: URL (book media only)
 fitScale();                              // scale the fixed 1280x720 book to fit first
 renderLeaves();                          // lay out the leaves (all on page 1 to start)
 updateProgress();
+// Arm the ANIMATED re-fit only AFTER the first fit has painted — otherwise the
+// book would visibly grow from the 0.5 CSS fallback to its real size on load.
+requestAnimationFrame(function () {
+  requestAnimationFrame(function () { document.body.classList.add("scale-ready"); });
+});

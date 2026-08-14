@@ -97,6 +97,17 @@
     perspective: 2400px;                         /* depth for the 3D book */
     --pw: 1280px; --ph: 720px; --thick: 42px;   /* fixed page-block dimensions */
   }
+  /* ANIMATED RE-FIT — the book never SNAPS to a new size.
+     fitScale() only ever rewrites --book-scale, so the transform's used value
+     changes and this transition interpolates it: a rotation, a window resize, the
+     mobile URL bar retracting or the reader pressing F11 all glide instead of
+     jump-cutting. Timed + curved to match .lbd-stage.lbd-anim (0.4s, same easing)
+     so the game overlay travels WITH the book, not after it.
+     .scale-ready is added by JS one frame after the first fit, so the initial
+     layout still lands instantly with no grow-in from the 0.5 fallback. */
+  body.scale-ready .flip-scale {
+    transition: transform 400ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
 
   /* turn.js book (realistic paper curl), beneath the 3D cover until it opens. */
   #flipbook {
@@ -141,11 +152,15 @@
 
   /* While the viewport is actively resizing / the resolution is changing, freeze
      the page-turn transitions so the book can't appear to auto-flip (JS adds
-     .is-resizing during resize and removes it ~220ms after it settles). */
+     .is-resizing during resize and removes it once it settles).
+     ⚠ .flip-scale is deliberately NOT in this list any more: freezing it is what
+       made the book resize INSTANTLY — a hard jump-cut — the moment the viewport
+       changed. The whole point of the eased re-fit above is that this one layer
+       keeps its transition while everything else is frozen. Re-adding it here
+       brings the snap straight back. */
   body.is-resizing .leaf,
   body.is-resizing .leaf .curl,
-  body.is-resizing #flipbook,
-  body.is-resizing .flip-scale { transition: none !important; animation: none !important; }
+  body.is-resizing #flipbook { transition: none !important; animation: none !important; }
 
   /* ==========================================================================
      NAV CONTROL SET  —  BACK · NEXT · HOME
@@ -717,6 +732,19 @@
     from { opacity: 0; transform: translate(-50%, -50%) scale(0.3); }
     to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   }
+  /* OPEN — Play CROSS-FADES out (fade + shrink) the instant the cover starts its
+     swing, instead of sitting there until the blue inside-cover sheet abruptly
+     washes over it. Must stay AFTER body.is-ready .play-btn: both selectors are
+     the same specificity, so source order is what decides, and `animation: none`
+     is what cancels the pop-in / breathe pair that would otherwise keep forcing
+     opacity back to 1. */
+  body.is-open .play-btn,
+  body.is-open .load-bar {
+    opacity: 0; pointer-events: none;
+    transform: translate(-50%, -50%) scale(0.62);
+    transition: opacity 260ms ease, transform 380ms cubic-bezier(0.4, 0, 0.2, 1);
+    animation: none;
+  }
   /* BREATHING — the disc slowly grows and glows, then settles, like a calm
      breath. transform keeps the centre-of-cover placement; the glow swells too. */
   @keyframes playBreathe {
@@ -918,6 +946,8 @@
   /* Respect users who prefer less motion */
   @media (prefers-reduced-motion: reduce) {
     .book-float { animation: none; } .scene { animation: none; } .play-btn { animation: none; }
+    /* Re-fit lands instantly (correct size, no travel) rather than gliding. */
+    body.scale-ready .flip-scale { transition: none; }
     .book.open .cover { animation-duration: 420ms; }
     .book.open .cover .front .curl, body.is-open .cover-cast { animation-duration: 420ms; }
     :root { --flip-ms: 260ms; --cover-ms: 340ms; }
